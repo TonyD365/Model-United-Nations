@@ -24,6 +24,14 @@ function makeEmblemTexture() {
   return tex
 }
 
+function makeRostrumChair() {
+  const g = new THREE.Group()
+  const seat = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.45, 0.7), mat(0x6b4f2a)); seat.position.y = 0.42; seat.castShadow = true
+  const back = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.15, 0.16), mat(0x5a4327)); back.position.set(0, 1.0, -0.3)
+  const trim = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.08, 0.76), new THREE.MeshStandardMaterial({ color: palette.gold, metalness: 0.5, roughness: 0.4 })); trim.position.y = 0.66
+  g.add(seat, back, trim); return g
+}
+
 function seatMarker(id, pos, restricted) {
   const m = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 0.06, 18),
     new THREE.MeshBasicMaterial({ color: restricted ? 0xffcc33 : 0x44ff99, transparent: true, opacity: 0 }))
@@ -89,27 +97,38 @@ export function buildHall() {
     }
   }
 
-  // ---- 中央主席台 ----
-  const daisColor = mat(palette.rostrum)
-  for (let l = 0; l < 3; l++) {
-    const w = 16 - l * 4
-    const dais = new THREE.Mesh(new THREE.BoxGeometry(w, 0.9, 4 - l * 0.6), daisColor)
-    dais.position.set(0, 0.45 + l * 0.9, -12 - l * 1.2)
-    dais.castShadow = true; dais.receiveShadow = true
-    root.add(dais)
-  }
-  const lectern = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.2, 0.8), mat(palette.gold, { metalness: 0.4, roughness: 0.4 }))
-  lectern.position.set(0, 3.3, -10.4); root.add(lectern)
-  // 仅给主席台台体一个紧贴的方形碰撞（别用大圆，否则把整片中庭挡死）
-  COLLIDERS.push({ minX: -8.2, maxX: 8.2, minZ: -16, maxZ: -9.8 })
+  // ---- 中央主席台（presiding rostrum）----
+  const gold = mat(palette.gold, { metalness: 0.5, roughness: 0.4 })
+  const wood = mat(0x5a4327)
+  // 两级台基（前向台阶）
+  const base0 = new THREE.Mesh(new THREE.BoxGeometry(15, 0.75, 4.4), mat(palette.rostrum))
+  base0.position.set(0, 0.375, -13); base0.receiveShadow = true; root.add(base0)
+  const base1 = new THREE.Mesh(new THREE.BoxGeometry(12.5, 0.75, 3.4), mat(palette.rostrum))
+  base1.position.set(0, 1.125, -13.4); base1.receiveShadow = true; root.add(base1)
+  const ROST_Y = 1.5
+  // 主席长桌（朝 +Z），坐者从桌后看向会场
+  const bench = new THREE.Mesh(new THREE.BoxGeometry(11, 1.0, 0.8), wood)
+  bench.position.set(0, ROST_Y + 0.5, -12.0); bench.castShadow = true; root.add(bench)
+  const benchTop = new THREE.Mesh(new THREE.BoxGeometry(11.3, 0.1, 1.0), gold)
+  benchTop.position.set(0, ROST_Y + 1.0, -12.0); root.add(benchTop)
+  const benchEmblem = new THREE.Mesh(new THREE.CircleGeometry(0.62, 32),
+    new THREE.MeshStandardMaterial({ map: makeEmblemTexture(), roughness: 0.6 }))
+  benchEmblem.position.set(0, ROST_Y + 0.5, -11.58); root.add(benchEmblem)
+  // 演讲台（台前地面，代表发言用）
+  const podium = new THREE.Mesh(new THREE.CylinderGeometry(0.65, 0.85, 1.3, 6), wood)
+  podium.position.set(0, 0.65, -9); podium.castShadow = true; root.add(podium)
+  const podTop = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.1, 0.8), gold)
+  podTop.position.set(0, 1.32, -9); podTop.rotation.x = -0.2; root.add(podTop)
+  // 碰撞：台体方块 + 演讲台
+  COLLIDERS.push({ minX: -7.6, maxX: 7.6, minZ: -15.6, maxZ: -11.3 })
+  COLLIDERS.push({ x: 0, z: -9, r: 0.95 })
 
-  // 主席台高位（主席 + 2 发言席），面向 +Z（朝代表）
-  const rostrumY = 2.7, rostrumZ = -13.6
-  ;[-3.2, 0, 3.2].forEach((rx, i) => {
-    const chair = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.2, 0.9), mat(palette.gold, { metalness: 0.3 }))
-    chair.position.set(rx, rostrumY + 0.6, rostrumZ); root.add(chair)
-    const pos = new THREE.Vector3(rx, rostrumY, rostrumZ)
-    const marker = seatMarker('r' + i, new THREE.Vector3(rx, rostrumY + 1.3, rostrumZ), true)
+  // 主席台 3 个高位（主席居中 + 2 副），面向 +Z（朝代表）
+  ;[-3.4, 0, 3.4].forEach((rx, i) => {
+    const ch = makeRostrumChair()
+    ch.position.set(rx, ROST_Y, -13.5); root.add(ch)
+    const pos = new THREE.Vector3(rx, ROST_Y, -13.5)
+    const marker = seatMarker('r' + i, new THREE.Vector3(rx, ROST_Y + 1.0, -13.5), true)
     root.add(marker)
     SEATS.push({ id: 'r' + i, position: pos.clone(), ry: 0, rostrum: true, mesh: marker })
     ROSTRUM_SEAT_IDS.push('r' + i)

@@ -148,16 +148,20 @@ export function updatePlayer(dt) {
     }
   }
 
-  // 落座时强制第一人称（朝会场看，避免相机被墙/台体卡住）；第一人称隐藏自身模型
-  const fp = !thirdPerson || !!seated
+  // 第一人称隐藏自身模型（避免相机穿进头部）
   if (self) {
     self.group.position.copy(pos)
     self.anim = moving ? 1 : 0
-    self.group.visible = !fp
+    self.group.visible = thirdPerson
   }
 
   // 相机
-  if (!fp) {
+  if (thirdPerson && seated) {
+    // 落座 + 第三人称：相机放在身前看回来（避免撞后墙/台体卡住）
+    const tx = pos.x, ty = pos.y + 1.2, tz = pos.z
+    camera.position.set(tx + lookDir.x * 4.5, ty + 1.4, tz + lookDir.z * 4.5)
+    camera.lookAt(tx, ty, tz)
+  } else if (thirdPerson) {
     const tx = pos.x, ty = pos.y + 1.5, tz = pos.z
     const d = cameraDist(tx, ty, tz, camDist)   // 遇墙自动拉近，避免穿墙
     camera.position.set(tx - lookDir.x * d, Math.max(0.4, ty - lookDir.y * d), tz - lookDir.z * d)

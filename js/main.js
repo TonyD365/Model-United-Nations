@@ -6,7 +6,7 @@ import { buildOffices, zoneAt, DOCUMENTS, boothCenter } from './office.js'
 import { VOICE_UPDATE_HZ, SEATED_PHASES } from './config.js'
 import { S, local, on } from './state.js'
 import { initPlayer, updatePlayer, position, setSeated, standUp, setColliders, teleport } from './player.js'
-import { loadCharacter, spawnAvatar, removeAvatar, setAvatarTarget, placeAvatar, updateAvatars, setAvatarName, setAvatarSeated, getAvatar } from './avatars.js'
+import { loadCharacter, spawnAvatar, removeAvatar, setAvatarTarget, placeAvatar, updateAvatars, setAvatarName, setAvatarSeated, getAvatar, showBubble } from './avatars.js'
 import { initVoice, updateVoice, removeVoicePeer } from './voice.js'
 import * as net from './net.js'
 import { pickSeat, seatById, setSeatHighlight } from './seats.js'
@@ -72,6 +72,9 @@ on('playerAdded', id => {
   else setAvatarName(id, p.name, p.color)
 })
 on('playerRemoved', id => { removeAvatar(id); removeVoicePeer(id) })
+
+// ---- 庭审式发言：头顶气泡 ----
+on('say', d => showBubble(d.peerId, d.text))
 
 // ---- 按时刻表/手动：把自己传送到大厅或本国办公室 ----
 on('teleport', type => {

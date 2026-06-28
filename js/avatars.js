@@ -110,6 +110,35 @@ export function removeAvatar(peerId) {
   delete avatars[peerId]
 }
 
+// 头顶语音气泡（庭审式发言）
+function makeBubbleSprite(text) {
+  const W = 320, lh = 30, pad = 16
+  const c = document.createElement('canvas'); const x = c.getContext('2d')
+  x.font = '22px sans-serif'
+  const words = String(text).split(/\s+/); const lines = []; let cur = ''
+  for (const w of words) { const t = cur ? cur + ' ' + w : w; if (x.measureText(t).width > W - pad * 2 && cur) { lines.push(cur); cur = w } else cur = t }
+  if (cur) lines.push(cur)
+  const show = lines.slice(0, 4)
+  c.width = W; c.height = show.length * lh + pad * 2 + 12
+  const x2 = c.getContext('2d')
+  x2.fillStyle = 'rgba(248,248,242,0.97)'; roundRect(x2, 4, 4, W - 8, show.length * lh + pad * 2, 14); x2.fill()
+  x2.beginPath(); x2.moveTo(W / 2 - 12, c.height - 14); x2.lineTo(W / 2 + 12, c.height - 14); x2.lineTo(W / 2, c.height - 2); x2.closePath(); x2.fill()
+  x2.fillStyle = '#16201c'; x2.font = '22px sans-serif'; x2.textBaseline = 'top'
+  show.forEach((l, i) => x2.fillText(l, pad, pad + i * lh))
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace
+  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }))
+  spr.scale.set(W / 90, c.height / 90, 1)
+  return spr
+}
+export function showBubble(peerId, text) {
+  const a = avatars[peerId]; if (!a) return
+  if (a.bubble) { a.group.remove(a.bubble); a.bubble.material.map?.dispose() }
+  const spr = makeBubbleSprite(text); spr.position.y = 2.7
+  a.group.add(spr); a.bubble = spr
+  clearTimeout(a.bubbleT)
+  a.bubbleT = setTimeout(() => { if (a.bubble === spr) { a.group.remove(spr); spr.material.map?.dispose(); a.bubble = null } }, 5500)
+}
+
 export function getAvatar(peerId) { return avatars[peerId] }
 export function avatarPosition(peerId) { const a = avatars[peerId]; return a ? a.group.position : null }
 

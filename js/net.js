@@ -66,7 +66,7 @@ function defActions() {
     'rostReq','rostDec','phase','start','voteOpen','voteCast','voteClose',
     'signDoc','signSet','zone','floor','mic','chat','pLeft','chair',
     'roll','gsl','draft','dSponsor','dSign','statsSet','result',
-    'sched','orch','elect','teleAll'].forEach(defAction)
+    'sched','orch','elect','teleAll','say','splash','present'].forEach(defAction)
 }
 
 function wire() {
@@ -159,6 +159,11 @@ function wire() {
     else if (local.isHost && d.vote) hostElectionVote(peer, d.vote)
   })
   A.teleAll.on((d) => emit('teleport', d.type))
+
+  // —— 庭审式：对话 / 弹屏 / 展示文件 ——
+  A.say.on((d) => emit('say', d))
+  A.splash.on((d) => emit('splash', d))
+  A.present.on((d) => emit('present', d))
 
   // ---- 议程 / 议题 ----
   A.phase.on((d) => { S.agenda = { phase: d.phase, topic: d.topic }; emit('agenda') })
@@ -429,6 +434,20 @@ export function sendChat(text) {
   A.chat.send(d); emit('chat', d)
 }
 export function broadcastMic(on) { local.micOn = on; A.mic.send({ on }) }
+
+// —— 庭审式发言/弹屏/展示 ——
+export function sayLine(text) {
+  const d = { peerId: selfId, name: local.name, iso: local.iso, text: String(text).slice(0, 220) }
+  A.say.send(d); emit('say', d)
+}
+export function sendSplash(kind, label) {
+  const d = { kind, label, name: local.name, iso: local.iso }
+  A.splash.send(d); emit('splash', d)
+}
+export function presentDoc(docId) {
+  const d = { docId, name: local.name, iso: local.iso }
+  A.present.send(d); emit('present', d)
+}
 
 export function leaveRoom() {
   clearInterval(worldTimer); clearInterval(posTimer); clearInterval(orchTimer)

@@ -196,3 +196,28 @@ textarea.hp-input { resize: vertical; font-family: inherit; }
 .doc-btn { flex: 1; padding: 12px; border-radius: 10px; font-weight: 700; color: #fff; }
 .doc-btn.ok { background: linear-gradient(180deg,#2a7d63,#1f5c4a); }
 .doc-btn.no { background: #8a3b3b; }
+
+/* ===== courtroom-style: dialogue, splashes, speak ===== */
+.stage { position: absolute; bottom: 124px; left: 50%; transform: translateX(-50%); width: min(680px, 94vw); display: flex; flex-direction: column; gap: 8px; align-items: stretch; z-index: 30; }
+.dialogue { background: rgba(10,18,15,0.95); border: 2px solid var(--gold); border-radius: 12px; padding: 10px 16px; box-shadow: 0 8px 30px rgba(0,0,0,0.5); }
+.dlg-name { color: var(--gold); font-weight: 800; font-size: 15px; margin-bottom: 4px; }
+.dlg-text { color: #fff; font-size: 16px; line-height: 1.35; min-height: 22px; }
+.speak-row { display: flex; gap: 8px; }
+.speak-input { flex: 1; padding: 10px 12px; border-radius: 10px; font-size: 15px; }
+.speak-send { padding: 10px 16px; border-radius: 10px; background: var(--gold); color: #1a1405; font-weight: 700; }
+.ctl.obj { background: #b5302f; color: #fff; }
+
+.splash { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; z-index: 60; }
+.splash-text { font-size: clamp(40px, 10vw, 120px); font-weight: 900; font-style: italic; letter-spacing: 1px; text-shadow: 4px 4px 0 rgba(0,0,0,0.6), 0 0 30px rgba(0,0,0,0.4); transform: rotate(-7deg); animation: splashIn .18s cubic-bezier(.2,1.6,.4,1), shake .4s .18s; }
+.splash.red .splash-text { color: #ff4d4d; }
+.splash.gold .splash-text { color: var(--gold); }
+.splash.green .splash-text { color: #5be38c; }
+.splash-who { margin-top: 10px; color: #fff; font-weight: 700; font-size: 18px; background: rgba(0,0,0,0.5); padding: 6px 14px; border-radius: 999px; }
+@keyframes splashIn { from { transform: rotate(-7deg) scale(0.2); opacity: 0; } to { transform: rotate(-7deg) scale(1); opacity: 1; } }
+@keyframes shake { 0%,100%{ margin-left:0 } 20%{ margin-left:-12px } 40%{ margin-left:12px } 60%{ margin-left:-8px } 80%{ margin-left:8px } }
+.doc-present-banner { background: var(--gold); color: #1a1405; font-weight: 800; text-align: center; padding: 6px; border-radius: 8px; margin-bottom: 8px; }
+
+@media (max-width: 640px) {
+  .stage { bottom: 158px; width: 96vw; }
+  .dlg-text { font-size: 14px; }
+}

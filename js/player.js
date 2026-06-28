@@ -63,9 +63,10 @@ export function position() { return pos }
 export function setJoystick(x, y) { input.move.set(x, y) }
 export function addLook(dx, dy) { input.lookDX += dx; input.lookDY += dy }
 
+const typing = e => { const t = e.target; return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable) }
 function setupDesktop() {
-  addEventListener('keydown', e => { keys[e.code] = true; if (e.code === 'KeyV') toggleView() })
-  addEventListener('keyup', e => { keys[e.code] = false })
+  addEventListener('keydown', e => { if (typing(e)) return; keys[e.code] = true; if (e.code === 'KeyV') toggleView() })
+  addEventListener('keyup', e => { if (typing(e)) { keys[e.code] = false; return } keys[e.code] = false })
   const canvas = document.getElementById('app')
   canvas.addEventListener('contextmenu', e => e.preventDefault())
   canvas.addEventListener('mousedown', e => { if (e.button === 2) { dragging = true; canvas.style.cursor = 'grabbing' } })

@@ -10,6 +10,7 @@ import { phaseLabel, phaseMeta, nextPhase, prevPhase } from './agenda.js'
 import { FIELDS, fmt, devIndex, fullProfile } from './stats.js'
 import { resolutionsFor, EFFECT_TEMPLATES, effectText } from './resolutions.js'
 import { flagUrl } from './flags.js'
+import * as sfx from './sfx.js'
 
 const overlay = document.getElementById('overlay')
 let hooks = {}
@@ -141,7 +142,11 @@ function enterHUD() {
   buildResultModal()
   buildPresetPanel()
   buildElectionPanel()
+  buildStage()
   on('chat', d => toast('💬 ' + (COUNTRY_BY_ISO[d.iso]?.name || d.name) + ': ' + d.text, 3600))
+  on('splash', showSplash)
+  on('present', d => openDocument(d.docId, true))
+  on('result', () => { const r = S.lastResult; if (r) showSplash({ kind: r.passed ? 'CARRIED' : 'FAILED', label: r.passed ? 'Motion Carried' : 'Motion Failed' }) })
 
   // 底部控制条
   const bar = el('div', 'hud-bar'); bar.style.pointerEvents = 'auto'
@@ -174,7 +179,9 @@ function enterHUD() {
   pointBtn.onclick = () => openPointsMenu()
   const signBtn = el('button', 'ctl', '🖊️ Sign')
   signBtn.onclick = () => openDocument('resolution')
-  bar.append(micBtn, viewBtn, standBtn, officeBtn, hallBtn, visitSel, boardBtn, schedBtn, pointBtn, signBtn)
+  const objBtn = el('button', 'ctl obj', '❗ Object')
+  objBtn.onclick = () => { sfx.resume(); net.sendSplash('POINT', 'Point of Order!') }
+  bar.append(micBtn, viewBtn, standBtn, officeBtn, hallBtn, visitSel, boardBtn, schedBtn, pointBtn, signBtn, objBtn)
   overlay.appendChild(bar)
 
   if (isMobile) buildMobileControls()
@@ -450,14 +457,50 @@ function openPointsMenu() {
   m.appendChild(card); overlay.appendChild(m)
 }
 
-// ---------------- 签字文档（打开→弹文档→签名→Approve/Reject）----------------
-export function openDocument(docId = 'resolution') {
+// ---------------- 庭审式发言台（底部对话框 + 发言输入）----------------
+function buildStage() {
+  const stage = el('div', 'stage'); stage.style.pointerEvents = 'auto'; overlay.appendChild(stage)
+  const dlg = el('div', 'dialogue'); dlg.style.display = 'none'
+  const dname = el('div', 'dlg-name'); const dtext = el('div', 'dlg-text')
+  dlg.append(dname, dtext); stage.appendChild(dlg)
+  const row = el('div', 'speak-row')
+  const input = el('input', 'speak-input'); input.placeholder = 'Speak to the assembly…  (Enter)'; input.maxLength = 220
+  const send = el('button', 'speak-send', 'Speak')
+  const fire = () => { const t = input.value.trim(); if (!t) return; sfx.resume(); net.sayLine(t); input.value = '' }
+  send.onclick = fire
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); fire() } })
+  row.append(input, send); stage.appendChild(row)
+
+  let typer = null
+  on('say', d => {
+    dlg.style.display = ''
+    dname.innerHTML = `${d.iso ? fimg(d.iso) : ''} ${COUNTRY_BY_ISO[d.iso]?.name || d.name}`
+    clearInterval(typer); dtext.textContent = ''
+    const full = d.text; let i = 0
+    typer = setInterval(() => { dtext.textContent = full.slice(0, ++i); if (i >= full.length) clearInterval(typer) }, 18)
+    clearTimeout(dlg._hide); dlg._hide = setTimeout(() => { dlg.style.display = 'none' }, 4000 + full.length * 45)
+  })
+}
+
+// ---------------- 戏剧性弹屏（Objection! / Order! / Motion Carried）----------------
+function showSplash({ kind, label, name, iso }) {
+  const cls = kind === 'ORDER' ? 'gold' : kind === 'CARRIED' ? 'green' : kind === 'FAILED' ? 'red' : 'red'
+  const s = el('div', 'splash ' + cls)
+  s.innerHTML = `<div class="splash-text">${label || kind}</div>` + (name ? `<div class="splash-who">${iso ? fimg(iso) : ''} ${COUNTRY_BY_ISO[iso]?.name || name}</div>` : '')
+  overlay.appendChild(s)
+  try { if (kind === 'ORDER') sfx.gavel(); else if (kind === 'CARRIED') sfx.chime(); else sfx.sting() } catch {}
+  setTimeout(() => s.remove(), 1500)
+}
+
+// ---------------- 签字文档（打开→弹文档→签名→Approve/Reject；present=只读展示）----------------
+export function openDocument(docId = 'resolution', presented = false) {
   const m = el('div', 'modal'); m.style.pointerEvents = 'auto'
   const card = el('div', 'modal-card doc-card')
   const d = S.draft
   const title = d ? d.title : (docId === 'treaty' ? 'International Treaty' : 'Conference Document')
   const clauses = d ? (d.clauses || []) : ['(No active draft resolution — this is a blank conference document.)']
-  let h = `<div class="doc-head">📜 ${title}</div>`
+  let h = presented ? '<div class="doc-present-banner">📢 Presented to the assembly</div>' : ''
+  h += `<div class="doc-head">📜 ${title}</div>`
   if (d && d.effects) h += `<div class="doc-effect">${effectText(d.effects)} · applies to ${d.scope === 'all' ? 'all members' : 'sponsors & signatories'}</div>`
   h += `<ol class="doc-body">${clauses.map(c => `<li>${c}</li>`).join('')}</ol>`
   card.innerHTML = h
@@ -473,6 +516,11 @@ export function openDocument(docId = 'resolution') {
   const rj = el('button', 'doc-btn no', '❌ Reject')
   rj.onclick = () => { net.signDocument(docId, false, sig.value.trim() || local.name); toast('Rejected'); m.remove() }
   row.append(ap, rj); card.appendChild(row)
+  if (!presented) {
+    const pr = el('button', 'hp-btn', '📢 Present to Assembly')
+    pr.onclick = () => { net.presentDoc(docId); toast('Presented to the assembly') }
+    card.appendChild(pr)
+  }
   const cl = el('button', 'hp-btn', 'Close'); cl.onclick = () => m.remove(); card.appendChild(cl)
   m.appendChild(card); overlay.appendChild(m)
 }
@@ -529,6 +577,9 @@ function buildHostPanel(container) {
   const phaseHint = el('div', 'hp-mini')
   const refreshPhase = () => { phaseNow.innerHTML = phaseLabel(S.agenda.phase); phaseHint.textContent = PHASE_HINTS[S.agenda.phase] || '' }
   on('agenda', refreshPhase); refreshPhase(); panel.appendChild(phaseHint)
+  const gavelBtn = el('button', 'hp-btn', '🔨 Bang Gavel — “Order!”')
+  gavelBtn.onclick = () => { sfx.resume(); net.sendSplash('ORDER', 'Order in the Assembly!') }
+  panel.appendChild(gavelBtn)
 
   // 点名统计
   panel.appendChild(el('label', 'hp-label', 'Roll Call'))

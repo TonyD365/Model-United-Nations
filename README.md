@@ -31,6 +31,7 @@ player's browser acts as the authoritative **host**.
   - **Session presets with a 1-minute countdown** — before the session the Chair picks the agenda; if not chosen in time the system auto-picks. Presets include topics plus **Elect a Chairman** and **Elect Security Council members** (an ⅔ "important question").
   - **Chairman campaign** — optional election for Chairman at the start.
   - **Points & Motions** — delegates can raise a Point of Order / Personal Privilege / Parliamentary Inquiry / Right of Reply or motion for caucuses/voting (broadcast to the room). "Present & Voting" delegates cannot abstain.
+- **Courtroom-roleplay presentation** (in the spirit of the Roblox Ace Attorney games, adapted to Model UN): type a statement to **speak** — it appears as a speech bubble over your delegate and a typewriter **dialogue box**; a big **"Point of Order!"** splash for objections; the Chair can **bang the gavel** for "Order!"; **present documents** to the whole assembly; and votes resolve with a **"Motion Carried / Failed"** splash. Sound effects are synthesised in the browser (no audio files).
 - **Voice chat** — proximity-based in the hall, room-based inside offices, and hall-wide when the chair grants you the floor.
 
 ## Run locally

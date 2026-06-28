@@ -4,6 +4,7 @@ import { palette } from './config.js'
 import { scene } from './scene.js'
 import { SEATS, COLLIDERS } from './hall.js'
 import { flagOf, COUNTRY_BY_ISO } from './countries.js'
+import { flagTexture } from './flags.js'
 
 const COLS = 10
 const CELL_W = 8      // 单元宽(x)
@@ -103,11 +104,14 @@ export function buildOffices() {
       g.add(paper); DOCUMENTS.push(paper)
     })
 
-    // 墙上国旗占位（refreshOfficeSigns 时填充）
-    const flag = makeTextSprite('🏳️', '#222')
-    flag.position.set(c.x + RW / 2 - 0.2, 2.1, c.z); flag.scale.set(2.4, 1.6, 1)
-    flag.material.rotation = 0
+    // 墙上国旗（真实 SVG 贴图的平面，贴在后墙朝向房间 -X）+ 国名牌
+    const flag = new THREE.Mesh(new THREE.PlaneGeometry(2.7, 1.8),
+      new THREE.MeshBasicMaterial({ color: 0x1a1f1d }))
+    flag.position.set(c.x + RW / 2 - 0.12, 2.15, c.z); flag.rotation.y = -Math.PI / 2
     scene.add(flag); flagSprites[i] = flag
+    const nameTag = makeTextSprite('', '#0d1412')
+    nameTag.position.set(c.x + RW / 2 - 0.25, 0.95, c.z); nameTag.scale.set(2.4, 1.2, 1)
+    scene.add(nameTag); nameSprites[i] = nameTag
   }
 
   scene.add(root)
@@ -156,25 +160,29 @@ function makeTextSprite(text, bg = '#163d31') {
   return new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }))
 }
 
-function setFlagSprite(spr, country) {
-  const c = document.createElement('canvas'); c.width = 256; c.height = 160
+function setNameTag(spr, text) {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 96
   const x = c.getContext('2d')
-  x.fillStyle = '#0d1412'; x.fillRect(0, 0, 256, 160)
-  x.font = '96px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'
-  x.fillText(country ? country.flag : '🏳️', 128, 64)
-  x.fillStyle = '#fff'; x.font = 'bold 26px sans-serif'
-  x.fillText(country ? country.name : '', 128, 132)
+  x.fillStyle = '#0d1412'; x.fillRect(0, 0, 256, 96)
+  x.fillStyle = '#fff'; x.font = 'bold 30px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'
+  x.fillText((text || '').slice(0, 22), 128, 48)
   const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace
   spr.material.map?.dispose(); spr.material.map = tex; spr.material.needsUpdate = true
 }
 
-// 按 roster 更新各办公室墙上国旗
+// 按 roster 更新各办公室墙上国旗 + 国名
 export function refreshOfficeSigns(roster) {
   const byBooth = {}
   for (const iso in roster) { const b = roster[iso].booth; if (b != null) byBooth[b] = iso }
   for (let i = 0; i < OFFICE_MAX; i++) {
     const iso = byBooth[i]
-    if (flagSprites[i]) setFlagSprite(flagSprites[i], iso ? COUNTRY_BY_ISO[iso] : null)
+    const plane = flagSprites[i]
+    if (plane) {
+      if (iso) { plane.material.map = flagTexture(iso); plane.material.color.set(0xffffff) }
+      else { plane.material.map = null; plane.material.color.set(0x1a1f1d) }
+      plane.material.needsUpdate = true
+    }
+    if (nameSprites[i]) setNameTag(nameSprites[i], iso ? (COUNTRY_BY_ISO[iso]?.name || iso) : '')
   }
 }
 

@@ -44,57 +44,45 @@ export function buildHall() {
   aisle.rotation.x = -Math.PI / 2; aisle.position.set(0, 0.01, 6)
   root.add(aisle)
 
-  // ---- 阶梯代表席（实心台阶，面向 -Z 主席台）----
+  // ---- 阶梯代表席（每座实心台座，面向 -Z 主席台；不再悬空）----
   const tiers = 4
   const seatsPerTier = [10, 12, 14, 16]
   const spread = Math.PI * 1.08
   const start = Math.PI / 2 + spread / 2
-  const seg = 80
   let idx = 0
   for (let t = 0; t < tiers; t++) {
-    const y = t * 0.6
-    const rInner = 9 + t * 3.4
-    const rOuter = rInner + 3.2
-    const midR = (rInner + rOuter) / 2
-
-    // 实心环形台面（站立面）
-    const annulus = new THREE.Mesh(
-      new THREE.RingGeometry(rInner, rOuter + 0.3, seg, 1, start - spread, spread),
-      mat(palette.carpetDark, { side: THREE.DoubleSide, roughness: 1 }))
-    annulus.rotation.x = -Math.PI / 2; annulus.position.y = y; annulus.receiveShadow = true
-    root.add(annulus)
-    // 竖直立板（台阶正面）
-    const riser = new THREE.Mesh(
-      new THREE.CylinderGeometry(rInner, rInner, y + 0.6, seg, 1, true, start - spread, spread),
-      mat(palette.carpet, { side: THREE.DoubleSide, roughness: 1 }))
-    riser.position.y = (y + 0.6) / 2 - 0.6
-    root.add(riser)
-
+    const y = t * 0.6                 // 台阶高度
+    const midR = 10 + t * 3.3         // 座位环半径
     const count = seatsPerTier[t]
     for (let i = 0; i < count; i++) {
       const a = start - (i + 0.5) * (spread / count)
-      const rDesk = midR - 0.7, rChair = midR + 0.5
+      const rDesk = midR - 0.8, rChair = midR + 0.6
       const dx = Math.cos(a) * rDesk, dz = Math.sin(a) * rDesk
       const cx = Math.cos(a) * rChair, cz = Math.sin(a) * rChair
+      const mx = Math.cos(a) * midR, mz = Math.sin(a) * midR
       const ry = Math.atan2(-cx, -cz)   // 面向圆心(主席台)
 
-      const g = new THREE.Group(); g.position.set(0, y, 0)
+      // 实心台座：从地面 0 直达本层高度 y，桌椅落在其顶面（消除悬空）
+      if (y > 0.01) {
+        const ped = new THREE.Mesh(new THREE.BoxGeometry(3.7, y, 3.5), mat(palette.carpetDark, { roughness: 1 }))
+        ped.position.set(mx, y / 2, mz); ped.rotation.y = ry; ped.receiveShadow = true
+        root.add(ped)
+      }
       // 桌
       const desk = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.85, 0.75), mat(palette.desk))
-      desk.position.set(dx, 0.43, dz); desk.rotation.y = ry; desk.castShadow = true
+      desk.position.set(dx, y + 0.43, dz); desk.rotation.y = ry; desk.castShadow = true
       const top = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.08, 0.85), mat(palette.deskTop))
-      top.position.set(dx, 0.9, dz); top.rotation.y = ry
-      // 椅
+      top.position.set(dx, y + 0.9, dz); top.rotation.y = ry
+      // 椅（椅背朝外，坐者面向主席台）
       const chair = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.5, 0.55), mat(0x33414a))
-      chair.position.set(cx, 0.25, cz); chair.rotation.y = ry
+      chair.position.set(cx, y + 0.25, cz); chair.rotation.y = ry
       const chairBack = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.6, 0.1), mat(0x2a363d))
-      chairBack.position.set(cx + Math.sin(ry) * 0.24, 0.6, cz + Math.cos(ry) * 0.24); chairBack.rotation.y = ry
-      g.add(desk, top, chair, chairBack)
-      root.add(g)
+      chairBack.position.set(cx - Math.sin(ry) * 0.28, y + 0.6, cz - Math.cos(ry) * 0.28); chairBack.rotation.y = ry
+      root.add(desk, top, chair, chairBack)
 
       const seatPos = new THREE.Vector3(cx, y, cz)
       const marker = seatMarker('s' + idx, seatPos, false)
-      g.add(marker)
+      root.add(marker)
       SEATS.push({ id: 's' + idx, position: seatPos.clone(), ry, rostrum: false, mesh: marker })
       COLLIDERS.push({ x: dx, z: dz, r: 1.0 })   // 桌子挡路
       idx++

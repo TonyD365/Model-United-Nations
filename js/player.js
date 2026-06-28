@@ -131,7 +131,7 @@ export function updatePlayer(dt) {
   if (!seated && input.move.lengthSq() > 0.001) {
     const speed = (input.run ? RUN_SPEED : MOVE_SPEED) * dt
     const fwd = tmpDir.set(Math.sin(camYaw), 0, Math.cos(camYaw))   // 视角水平方向
-    const rx = Math.cos(camYaw), rz = -Math.sin(camYaw)            // 右方向
+    const rx = -Math.cos(camYaw), rz = Math.sin(camYaw)           // 右方向（修正：原来左右反了）
     const mx = fwd.x * input.move.y + rx * input.move.x
     const mz = fwd.z * input.move.y + rz * input.move.x
     const len = Math.hypot(mx, mz)

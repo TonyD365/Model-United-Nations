@@ -2,7 +2,7 @@
 import * as THREE from 'three'
 import { camera, overviewCamera, setActiveCamera, getActiveCamera, onTick, startLoop, raycaster } from './scene.js'
 import { buildHall, ROSTRUM_SEAT_IDS, COLLIDERS } from './hall.js'
-import { buildOffices, zoneAt, DOCUMENTS } from './office.js'
+import { buildOffices, zoneAt, DOCUMENTS, boothCenter } from './office.js'
 import { VOICE_UPDATE_HZ, SEATED_PHASES } from './config.js'
 import { S, local, on } from './state.js'
 import { initPlayer, updatePlayer, position, setSeated, standUp, setColliders, teleport } from './player.js'
@@ -72,6 +72,16 @@ on('playerAdded', id => {
   else setAvatarName(id, p.name, p.color)
 })
 on('playerRemoved', id => { removeAvatar(id); removeVoicePeer(id) })
+
+// ---- 按时刻表/手动：把自己传送到大厅或本国办公室 ----
+on('teleport', type => {
+  if (mode !== 'player') return
+  if (type === 'session') { teleport((Math.random() - 0.5) * 6, 1 + Math.random() * 4); toast('⏰ In session — moved to the Hall') }
+  else if (type === 'office') {
+    const r = S.roster[local.iso]
+    if (r && r.booth != null) { const c = boothCenter(r.booth); teleport(c.x, c.z - 1.5); toast('⏰ Office hours — moved to your office') }
+  }
+})
 
 // ---- 世界位置广播 ----
 on('world', arr => {

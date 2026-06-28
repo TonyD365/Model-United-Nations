@@ -162,3 +162,23 @@ textarea.hp-input { resize: vertical; font-family: inherit; }
   .res-panel { width: 220px; bottom: 130px; }
   .ctx-strip { top: 54px; }
 }
+
+/* ===== v3: orchestration (presets, elections, timetable, points) ===== */
+.preset-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0; }
+.preset-opt { padding: 12px; border-radius: 10px; background: rgba(255,255,255,0.08); color: #fff; font-weight: 600; font-size: 13px; text-align: left; }
+.preset-opt:hover { background: rgba(201,162,39,0.25); }
+.elect-list { display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow: auto; margin: 8px 0; }
+.elect-opt { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 9px; background: rgba(255,255,255,0.08); color: #fff; font-size: 14px; text-align: left; }
+.elect-opt span { flex: 1; } .elect-n { color: var(--gold); font-weight: 700; }
+.elect-opt.on { background: rgba(201,162,39,0.3); border: 1px solid var(--gold); }
+.elect-opt.won { background: rgba(42,125,99,0.5); }
+.hp-opts { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; }
+.hp-cb { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: #cfe; cursor: pointer; }
+.hp-cb input { width: auto; margin: 0; }
+.tt-list { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; max-height: 44vh; overflow: auto; }
+.tt-row { display: flex; gap: 8px; align-items: center; }
+.tt-time { width: auto; flex: 0 0 110px; }
+.tt-type { flex: 1; }
+.tt-dash { color: #9fb3aa; }
+.pm-grid { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
+.pm-grid .hp-btn { text-align: left; }

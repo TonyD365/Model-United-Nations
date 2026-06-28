@@ -1,17 +1,19 @@
 // Trystero 联机封装：房间、所有 action、主机权威逻辑、主机选举/离开处理
 import { joinRoom, selfId } from 'trystero'
-import { APP_ID, MAX_PLAYERS, WORLD_HZ, POS_HZ } from './config.js'
+import { APP_ID, MAX_PLAYERS, WORLD_HZ, POS_HZ, SESSION_PRESETS, PRESET_COUNTDOWN_MS, PHASE_DURATIONS, AUTO_PHASE_MS } from './config.js'
 import { S, local, emit, makeSnapshot, applySnapshot, isHost } from './state.js'
 import { COUNTRY_BY_ISO, colorOf } from './countries.js'
 import { freeBooth, refreshOfficeSigns } from './office.js'
 import { initStats, applyEffects } from './stats.js'
+import { nextPhase } from './agenda.js'
 
 let room = null
 const A = {}                 // action 名 -> { send, on }
 const pending = {}           // peerId -> name（已连接但未选国）
 let lastLocal = null
 let lastSentZone = 'hall'
-let worldTimer = null, posTimer = null
+let worldTimer = null, posTimer = null, orchTimer = null
+let phaseStartedAt = null, lastTeleType = null
 
 function defAction(name) {
   // trystero 0.25.x：makeAction 返回 { send, onMessage }；
@@ -63,7 +65,8 @@ function defActions() {
   ;['hello','snap','claimCty','ctySet','ctyRej','pos','world','seatReq','seatSet','seatRel',
     'rostReq','rostDec','phase','start','voteOpen','voteCast','voteClose',
     'signDoc','signSet','zone','floor','mic','chat','pLeft','chair',
-    'roll','gsl','draft','dSponsor','dSign','statsSet','result'].forEach(defAction)
+    'roll','gsl','draft','dSponsor','dSign','statsSet','result',
+    'sched','orch','elect','teleAll'].forEach(defAction)
 }
 
 function wire() {
@@ -136,6 +139,27 @@ function wire() {
   A.statsSet.on((d) => { const p = S.players[d.peerId]; if (p) p.stats = d.stats; emit('stats', d.peerId) })
   A.result.on((d) => { S.lastResult = d; emit('result') })
 
+  // —— 会议编排 ——
+  A.sched.on((d, peer) => {
+    if (d.schedReq) { if (local.isHost && peer === S.chairman) hostSetSchedule(d.schedReq); return }
+    if (d.schedule != null) S.schedule = d.schedule
+    if ('autoTeleport' in d) S.autoTeleport = d.autoTeleport
+    if ('autoFlow' in d) S.autoFlow = d.autoFlow
+    emit('orch')
+  })
+  A.orch.on((d, peer) => {
+    if (d.presetReq) { if (local.isHost && peer === S.chairman) applyPreset(d.presetReq); return }
+    if ('gameStage' in d) S.gameStage = d.gameStage
+    if ('preset' in d) S.preset = d.preset
+    if ('presetDeadline' in d) S.presetDeadline = d.presetDeadline
+    emit('orch')
+  })
+  A.elect.on((d, peer) => {
+    if (d.election) { S.election = d.election; emit('election') }
+    else if (local.isHost && d.vote) hostElectionVote(peer, d.vote)
+  })
+  A.teleAll.on((d) => emit('teleport', d.type))
+
   // ---- 议程 / 议题 ----
   A.phase.on((d) => { S.agenda = { phase: d.phase, topic: d.topic }; emit('agenda') })
   A.start.on((d) => { S.started = true; S.startedAt = d.startedAt; emit('started') })
@@ -190,6 +214,39 @@ function startTimers() {
       A.pos.send(lastLocal, S.hostId)
     }
   }, 1000 / POS_HZ)
+
+  // 主机：会议编排 tick（预设倒计时、自动流程、按时刻表传送）
+  if (local.isHost) {
+    orchTimer = setInterval(() => {
+      const now = Date.now()
+      // 选预设倒计时到点 → 系统自动选
+      if (S.gameStage === 'preset' && S.presetDeadline && !S.preset && now >= S.presetDeadline) {
+        const topics = SESSION_PRESETS.filter(p => p.kind === 'topic')
+        applyPreset(topics[Math.floor(now / 1000) % topics.length].id)
+      }
+      // 自动流程推进
+      if (S.autoFlow && S.gameStage === 'running' && S.started && !(S.election && S.election.open)) {
+        if (phaseStartedAt == null) phaseStartedAt = now
+        const dur = PHASE_DURATIONS[S.agenda.phase] ?? AUTO_PHASE_MS
+        if (dur > 0 && now - phaseStartedAt >= dur) {
+          const np = nextPhase(S.agenda.phase)
+          if (np !== S.agenda.phase) { S.agenda = { phase: np, topic: S.agenda.topic }; A.phase.send(S.agenda); emit('agenda'); phaseStartedAt = now }
+        }
+      }
+      // 按时刻表自动传送
+      if (S.autoTeleport && S.schedule.length) {
+        const t = activeScheduleType(S.schedule, now)
+        if (t && t !== lastTeleType) { lastTeleType = t; A.teleAll.send({ type: t }); emit('teleport', t) }
+      }
+    }, 1000)
+  }
+}
+
+function hm(s) { const m = /^(\d{1,2}):(\d{2})$/.exec(s || ''); return m ? (+m[1]) * 60 + (+m[2]) : null }
+function activeScheduleType(sched, now) {
+  const d = new Date(now); const cur = d.getHours() * 60 + d.getMinutes()
+  for (const b of sched) { const s = hm(b.start), e = hm(b.end); if (s == null || e == null) continue; if (cur >= s && cur < e) return b.type }
+  return null
 }
 
 // ============ 对外发送 API ============
@@ -374,8 +431,103 @@ export function sendChat(text) {
 export function broadcastMic(on) { local.micOn = on; A.mic.send({ on }) }
 
 export function leaveRoom() {
-  clearInterval(worldTimer); clearInterval(posTimer)
+  clearInterval(worldTimer); clearInterval(posTimer); clearInterval(orchTimer)
   if (room) room.leave()
+}
+
+// ============ 会议编排（主机/主席）============
+function broadcastOrch() { A.orch.send({ gameStage: S.gameStage, preset: S.preset, presetDeadline: S.presetDeadline }); emit('orch') }
+
+export function hostSetSchedule(schedule) {
+  if (!local.isHost) return
+  S.schedule = schedule
+  A.sched.send({ schedule, autoTeleport: S.autoTeleport, autoFlow: S.autoFlow }); emit('orch')
+}
+// 主席(可能非房主)修改时刻表
+export function setScheduleAsChair(schedule) {
+  if (local.isHost) hostSetSchedule(schedule)
+  else if (local.selfId === S.chairman) A.sched.send({ schedReq: schedule }, S.hostId)
+}
+export function hostSetAuto(a) {
+  if (!local.isHost) return
+  if ('autoTeleport' in a) S.autoTeleport = a.autoTeleport
+  if ('autoFlow' in a) S.autoFlow = a.autoFlow
+  if (!S.autoTeleport) lastTeleType = null
+  A.sched.send({ schedule: S.schedule, autoTeleport: S.autoTeleport, autoFlow: S.autoFlow }); emit('orch')
+}
+
+// 房主点"开始" → 可选先竞选主席，否则进入选预设倒计时
+export function hostStartSession(opts) {
+  if (!local.isHost) return
+  S.started = true; S.startedAt = Date.now()
+  S.autoFlow = !!opts.autoFlow; S.autoTeleport = !!opts.autoTeleport
+  A.start.send({ startedAt: S.startedAt })
+  A.sched.send({ schedule: S.schedule, autoTeleport: S.autoTeleport, autoFlow: S.autoFlow })
+  emit('started')
+  if (opts.campaign) { S.gameStage = 'campaign'; broadcastOrch(); hostOpenElection('chairman', 1) }
+  else hostBeginPreset()
+}
+export function hostBeginPreset() {
+  if (!local.isHost) return
+  S.gameStage = 'preset'; S.preset = null; S.presetDeadline = Date.now() + PRESET_COUNTDOWN_MS
+  broadcastOrch()
+}
+// 主席选预设（房主直接生效；非房主主席发请求给房主）
+export function chairPickPreset(id) {
+  if (local.isHost) applyPreset(id)
+  else if (local.selfId === S.chairman) A.orch.send({ presetReq: id }, S.hostId)
+}
+export function hostSetPreset(id) { if (local.isHost) applyPreset(id) }
+// 议事中的"点/动议"——以聊天广播通知全场
+export function raisePoint(text) {
+  const d = { name: local.name, iso: local.iso, text }
+  A.chat.send(d); emit('chat', d)
+}
+function applyPreset(id) {
+  const p = SESSION_PRESETS.find(x => x.id === id) || SESSION_PRESETS[0]
+  S.preset = id; S.presetDeadline = null; S.gameStage = 'running'
+  phaseStartedAt = Date.now()
+  if (p.kind === 'topic') {
+    S.agenda = { phase: 'rollcall', topic: p.topic }
+    A.phase.send(S.agenda); emit('agenda')
+  } else if (p.kind === 'election') {
+    S.agenda = { phase: 'voting', topic: p.label }
+    A.phase.send(S.agenda); emit('agenda')
+    hostOpenElection(p.election, p.seats)
+  }
+  broadcastOrch()
+}
+
+// ---- 选举（主席/理事国）----
+export function hostOpenElection(kind, seats) {
+  if (!local.isHost) return
+  const candidates = kind === 'chairman'
+    ? Object.entries(S.roster).map(([iso, r]) => ({ id: r.peerId, label: (COUNTRY_BY_ISO[iso]?.name || iso) + ' — ' + r.name, iso }))
+    : Object.keys(S.roster).map(iso => ({ id: iso, label: COUNTRY_BY_ISO[iso]?.name || iso, iso }))
+  S.election = { kind, seats, candidates, votes: {}, open: true, winners: [], tally: null }
+  A.elect.send({ election: S.election }); emit('election')
+}
+export function castElectionVote(candId) {
+  if (!S.election || !S.election.open) return
+  if (local.isHost) hostElectionVote(selfId, candId)
+  else A.elect.send({ vote: candId }, S.hostId)
+}
+function hostElectionVote(peerId, candId) {
+  if (!S.election || !S.election.open) return
+  const p = S.players[peerId]; if (!p || !p.iso) return
+  S.election.votes[p.iso] = candId
+  A.elect.send({ election: S.election }); emit('election')
+}
+export function hostCloseElection() {
+  if (!local.isHost || !S.election) return
+  const tally = {}
+  for (const iso in S.election.votes) { const c = S.election.votes[iso]; tally[c] = (tally[c] || 0) + 1 }
+  const winners = Object.entries(tally).sort((a, b) => b[1] - a[1]).slice(0, S.election.seats).map(([id]) => id)
+  S.election.open = false; S.election.winners = winners; S.election.tally = tally
+  if (S.election.kind === 'chairman' && winners[0]) hostDesignateChairman(winners[0])
+  if (S.election.kind === 'council') S.council = winners.slice()
+  A.elect.send({ election: S.election }); emit('election')
+  if (S.gameStage === 'campaign') hostBeginPreset()   // 竞选结束 → 选预设
 }
 
 // ============ 主机内部逻辑 ============

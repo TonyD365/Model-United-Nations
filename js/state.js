@@ -30,6 +30,15 @@ export const S = {
   gsl: [],                   // General Speakers' List：排队的 peerId
   draft: null,               // 当前起草决议 { id,title,clauses,effects,scope,sponsors:[iso],signatories:[iso] }
   lastResult: null,          // 上次表决结果 { title,passed,tally,scope,changes:[{iso,name,before,after}] }
+  // —— 会议编排 ——
+  schedule: [],              // [{ start:'HH:MM', end:'HH:MM', type:'session'|'office' }]
+  autoTeleport: false,       // 到点自动传送所有人
+  autoFlow: false,           // 自动推进真实流程
+  gameStage: 'setup',        // 'setup' | 'campaign' | 'preset' | 'running'
+  preset: null,              // 选定的会议预设 id
+  presetDeadline: null,      // 选预设截止时间戳(ms)
+  election: null,            // { kind, seats, candidates:[{id,label,iso}], votes:{iso:candId}, open, winners:[] }
+  council: [],               // 已选出的(非常任)理事国 iso
 }
 
 // 本地（仅本端）状态
@@ -76,6 +85,14 @@ export function makeSnapshot() {
     gsl: S.gsl,
     draft: S.draft,
     lastResult: S.lastResult,
+    schedule: S.schedule,
+    autoTeleport: S.autoTeleport,
+    autoFlow: S.autoFlow,
+    gameStage: S.gameStage,
+    preset: S.preset,
+    presetDeadline: S.presetDeadline,
+    election: S.election,
+    council: S.council,
   }
 }
 
@@ -98,7 +115,16 @@ export function applySnapshot(snap) {
   S.gsl = snap.gsl || []
   S.draft = snap.draft || null
   S.lastResult = snap.lastResult || null
+  S.schedule = snap.schedule || []
+  S.autoTeleport = !!snap.autoTeleport
+  S.autoFlow = !!snap.autoFlow
+  S.gameStage = snap.gameStage || 'setup'
+  S.preset = snap.preset || null
+  S.presetDeadline = snap.presetDeadline || null
+  S.election = snap.election || null
+  S.council = snap.council || []
   emit('snapshot')
+  emit('orch'); emit('election')
   emit('roster')
   emit('agenda')
   emit('vote')

@@ -25,6 +25,12 @@ player's browser acts as the authoritative **host**.
 - **Real country data & treaty effects** — every country carries real-world indicators (population, GDP, GDP/capita, CO₂ emissions, life expectancy, plus an expandable profile: area, density, region, capital, currency, languages…). When a resolution passes, its effects change the indicators of its signatories (or all members), shown as a before→after results panel and live ▲▼ deltas on the My Country card. Includes a sortable **World Standings** leaderboard.
 - **Resolutions** — preset library per topic, or the chair authors a **custom resolution** and sets its own indicator effects.
 - **Chair controls** — start session, advance the procedure, set the topic, run roll call / speakers' list, set drafts, open/close votes with tally, approve rostrum seats, grant the floor, and **designate a Chairman** (works in Dashboard-only mode).
+- **Session orchestration**:
+  - **Timetable** — the Chair/Chairman defines local-time blocks (In Session / Office Hours). With **auto-teleport** on, everyone is moved to the Hall or their office at each block's start.
+  - **Auto vs manual flow** — the Chair chooses to auto-run the real UN procedure (phases advance on timers) or step it manually.
+  - **Session presets with a 1-minute countdown** — before the session the Chair picks the agenda; if not chosen in time the system auto-picks. Presets include topics plus **Elect a Chairman** and **Elect Security Council members** (an ⅔ "important question").
+  - **Chairman campaign** — optional election for Chairman at the start.
+  - **Points & Motions** — delegates can raise a Point of Order / Personal Privilege / Parliamentary Inquiry / Right of Reply or motion for caucuses/voting (broadcast to the room). "Present & Voting" delegates cannot abstain.
 - **Voice chat** — proximity-based in the hall, room-based inside offices, and hall-wide when the chair grants you the floor.
 
 ## Run locally

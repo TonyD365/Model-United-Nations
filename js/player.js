@@ -148,21 +148,24 @@ export function updatePlayer(dt) {
     }
   }
 
+  // 落座时强制第一人称（朝会场看，避免相机被墙/台体卡住）；第一人称隐藏自身模型
+  const fp = !thirdPerson || !!seated
   if (self) {
     self.group.position.copy(pos)
     self.anim = moving ? 1 : 0
-    self.group.visible = thirdPerson   // 第一人称隐藏自身模型，避免相机穿进头部
+    self.group.visible = !fp
   }
 
   // 相机
-  if (thirdPerson) {
+  if (!fp) {
     const tx = pos.x, ty = pos.y + 1.5, tz = pos.z
     const d = cameraDist(tx, ty, tz, camDist)   // 遇墙自动拉近，避免穿墙
     camera.position.set(tx - lookDir.x * d, Math.max(0.4, ty - lookDir.y * d), tz - lookDir.z * d)
     camera.lookAt(tx, ty, tz)
   } else {
-    camera.position.set(pos.x, pos.y + 1.62, pos.z)
-    camera.lookAt(pos.x + lookDir.x, pos.y + 1.62 + lookDir.y, pos.z + lookDir.z)
+    const eye = pos.y + (seated ? 1.2 : 1.62)
+    camera.position.set(pos.x, eye, pos.z)
+    camera.lookAt(pos.x + lookDir.x, eye + lookDir.y, pos.z + lookDir.z)
   }
 
   return { x: round(pos.x), y: round(pos.y), z: round(pos.z), ry: round(self ? self.group.rotation.y : 0), anim: moving ? 1 : 0, moving }

@@ -61,3 +61,30 @@ export const VOTE_OPTIONS = ['Yes', 'No', 'Abstain']
 
 // 可走范围（含大厅 + 右侧办公区）
 export const FLOOR_BOUNDS = { minX: -24, maxX: 128, minZ: -28, maxZ: 32 }
+
+// 会议预设（开会前由 Chairman 选择；含选举类）
+export const SESSION_PRESETS = [
+  { id: 'climate', label: '🌍 Climate Change', kind: 'topic', topic: 'Climate Change Resolution' },
+  { id: 'humanitarian', label: '🤝 Humanitarian Aid', kind: 'topic', topic: 'Humanitarian Aid Appropriation' },
+  { id: 'peace', label: '🕊️ Peacekeeping', kind: 'topic', topic: 'Peacekeeping Deployment Authorization' },
+  { id: 'npt', label: '☢️ Non-Proliferation', kind: 'topic', topic: 'Nuclear Non-Proliferation' },
+  { id: 'refugee', label: '🛂 Refugee Resettlement', kind: 'topic', topic: 'Refugee Resettlement Framework' },
+  { id: 'health', label: '🏥 Global Public Health', kind: 'topic', topic: 'Global Public Health' },
+  { id: 'elect-chair', label: '🪑 Elect a New Chairman', kind: 'election', election: 'chairman', seats: 1 },
+  { id: 'elect-council', label: '🛡️ Elect Security Council Members', kind: 'election', election: 'council', seats: 5 },
+]
+
+export const PRESET_COUNTDOWN_MS = 60_000   // 开会前 1 分钟选预设，超时自动选
+export const AUTO_PHASE_MS = 30_000         // 自动流程每阶段时长
+
+// 自动流程下各阶段推进时长（毫秒，可不同）
+export const PHASE_DURATIONS = {
+  rollcall: 25_000, agenda: 30_000, gsl: 35_000, modcaucus: 35_000,
+  unmodcaucus: 45_000, draft: 60_000, amend: 30_000, voting: 40_000, adjourn: 0,
+}
+
+// 默认时刻表为空，Chairman 自行添加（时间为电脑本地时间 HH:MM）
+export const SCHEDULE_TYPES = [
+  { id: 'session', label: '🏛️ In Session (Hall)' },
+  { id: 'office', label: '🏢 Office Hours' },
+]

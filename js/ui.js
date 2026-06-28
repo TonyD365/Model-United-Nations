@@ -1,6 +1,6 @@
 // 界面（全英文）：大厅入口 / 选国 / HUD / 国家数据 / 决议·投票 / 房主流程面板 / 移动端摇杆
 import { S, local, on, isHost } from './state.js'
-import { PHASES, TOPICS, VOTE_OPTIONS, MAX_PLAYERS, SEATED_PHASES } from './config.js'
+import { PHASES, TOPICS, VOTE_OPTIONS, MAX_PLAYERS, SEATED_PHASES, SESSION_PRESETS, SCHEDULE_TYPES } from './config.js'
 import { COUNTRIES, COUNTRY_BY_ISO } from './countries.js'
 import * as net from './net.js'
 import { setMicEnabled, hasVoice, micEnabled } from './voice.js'
@@ -139,6 +139,9 @@ function enterHUD() {
   buildResolutionPanel()
   buildVotingModal()
   buildResultModal()
+  buildPresetPanel()
+  buildElectionPanel()
+  on('chat', d => toast('💬 ' + (COUNTRY_BY_ISO[d.iso]?.name || d.name) + ': ' + d.text, 3600))
 
   // 底部控制条
   const bar = el('div', 'hud-bar'); bar.style.pointerEvents = 'auto'
@@ -164,7 +167,12 @@ function enterHUD() {
   visitSel.onchange = () => { const r = S.roster[visitSel.value]; if (r && r.booth != null) { const cc = boothCenter(r.booth); teleport(cc.x - 2.4, cc.z); toast('Visiting ' + (COUNTRY_BY_ISO[visitSel.value]?.name || '')) } visitSel.selectedIndex = 0 }
   on('roster', refreshVisit); refreshVisit()
   const boardBtn = el('button', 'ctl', '📊 Stats'); boardBtn.onclick = () => openLeaderboard()
-  bar.append(micBtn, viewBtn, standBtn, officeBtn, hallBtn, visitSel, boardBtn)
+  const schedBtn = el('button', 'ctl', '🗓️ Schedule'); schedBtn.onclick = () => openTimetable()
+  const updateSched = () => { schedBtn.style.display = (isHost() || local.selfId === S.chairman) ? '' : 'none' }
+  on('chairman', updateSched); on('snapshot', updateSched); updateSched()
+  const pointBtn = el('button', 'ctl', '✋ Point')
+  pointBtn.onclick = () => openPointsMenu()
+  bar.append(micBtn, viewBtn, standBtn, officeBtn, hallBtn, visitSel, boardBtn, schedBtn, pointBtn)
   overlay.appendChild(bar)
 
   if (isMobile) buildMobileControls()
@@ -279,13 +287,17 @@ function buildVotingModal() {
       m.style.display = ''
       const voted = local.iso in (v.casts || {})
       m.innerHTML = `<div class="vp-title">🗳️ ${v.title}</div>`
+      // "Present & Voting" 不可弃权
+      const noAbstain = S.rollCall[local.iso] === 'voting'
       const opts = el('div', 'vp-opts')
       for (const o of v.options) {
+        if (o === 'Abstain' && noAbstain) continue
         const ob = el('button', 'vp-opt', o); if (voted) ob.disabled = true
         ob.onclick = () => { net.castVote(o); toast('Voted: ' + o) }
         opts.appendChild(ob)
       }
       m.appendChild(opts)
+      if (noAbstain) m.appendChild(el('div', 'vp-tally', 'You are Present & Voting — abstention not allowed'))
     } else m.style.display = 'none'
   }
   on('vote', render); on('snapshot', render); render()
@@ -338,6 +350,104 @@ function openLeaderboard() {
   m.appendChild(card); overlay.appendChild(m); render()
 }
 
+// ---------------- 选预设倒计时 ----------------
+function buildPresetPanel() {
+  const wrap = el('div', 'modal'); wrap.style.pointerEvents = 'auto'; wrap.style.display = 'none'; overlay.appendChild(wrap)
+  let timer = null
+  const render = () => {
+    if (S.gameStage !== 'preset') { wrap.style.display = 'none'; if (timer) { clearInterval(timer); timer = null } return }
+    wrap.style.display = ''
+    const amChair = local.selfId === S.chairman || (isHost() && !S.chairman)
+    const secs = S.presetDeadline ? Math.max(0, Math.ceil((S.presetDeadline - Date.now()) / 1000)) : 0
+    let h = `<div class="modal-card"><h3>📋 Select the Session Agenda</h3><div class="rs-sub">Auto-selects in <b id="pcount">${secs}</b>s if the Chair doesn’t choose</div>`
+    if (amChair) {
+      h += '<div class="preset-grid">'
+      for (const p of SESSION_PRESETS) h += `<button class="preset-opt" data-id="${p.id}">${p.label}</button>`
+      h += '</div>'
+    } else h += '<div class="rs-sub">The Chair is selecting the agenda…</div>'
+    h += '</div>'
+    wrap.innerHTML = h
+    if (amChair) wrap.querySelectorAll('.preset-opt').forEach(b => b.onclick = () => { net.chairPickPreset(b.dataset.id); toast('Agenda selected') })
+    if (!timer) timer = setInterval(() => { const c = wrap.querySelector('#pcount'); if (c && S.presetDeadline) c.textContent = Math.max(0, Math.ceil((S.presetDeadline - Date.now()) / 1000)) }, 500)
+  }
+  on('orch', render); on('snapshot', render); render()
+}
+
+// ---------------- 选举（主席/理事国）----------------
+function buildElectionPanel() {
+  const wrap = el('div', 'vote-panel'); wrap.style.pointerEvents = 'auto'; wrap.style.display = 'none'; overlay.appendChild(wrap)
+  const render = () => {
+    const e = S.election
+    if (!e) { wrap.style.display = 'none'; return }
+    wrap.style.display = ''
+    const mine = local.iso && e.votes[local.iso]
+    const title = e.kind === 'chairman' ? '🪑 Elect a Chairman' : `🛡️ Elect ${e.seats} Council Members · ⅔ important question`
+    let h = `<div class="vp-title">${title}${e.open ? '' : ' — closed'}</div><div class="elect-list">`
+    for (const c of e.candidates) {
+      const votes = Object.values(e.votes).filter(v => v === c.id).length
+      const won = (e.winners || []).includes(c.id)
+      h += `<button class="elect-opt${mine === c.id ? ' on' : ''}${won ? ' won' : ''}" data-id="${c.id}" ${e.open ? '' : 'disabled'}>${c.iso ? fimg(c.iso) : ''} <span>${c.label}</span> <b class="elect-n">${votes || ''}${won ? ' ✓' : ''}</b></button>`
+    }
+    h += '</div>'
+    if (isHost() && e.open) h += '<button class="vp-opt elect-close">Close Election & Tally</button>'
+    if (!e.open) h += '<button class="vp-opt elect-dismiss">OK</button>'
+    wrap.innerHTML = h
+    wrap.querySelectorAll('.elect-opt').forEach(b => b.onclick = () => { net.castElectionVote(b.dataset.id); toast('Vote cast') })
+    const cl = wrap.querySelector('.elect-close'); if (cl) cl.onclick = () => net.hostCloseElection()
+    const dm = wrap.querySelector('.elect-dismiss'); if (dm) dm.onclick = () => { wrap.style.display = 'none' }
+  }
+  on('election', render); on('snapshot', render); render()
+}
+
+// ---------------- 时刻表编辑 ----------------
+function openTimetable() {
+  const m = el('div', 'modal'); m.style.pointerEvents = 'auto'
+  const card = el('div', 'modal-card wide')
+  card.appendChild(el('h3', null, '🗓️ Session Timetable (your local time)'))
+  card.appendChild(el('p', 'rs-sub', 'Blocks define when delegates are In Session (Hall) or in Office Hours. With auto-teleport on, everyone is moved at each block start.'))
+  const list = el('div', 'tt-list'); card.appendChild(list)
+  let blocks = JSON.parse(JSON.stringify(S.schedule || []))
+  const renderList = () => {
+    list.innerHTML = ''
+    blocks.forEach((b, i) => {
+      const row = el('div', 'tt-row')
+      const s = el('input', 'tt-time'); s.type = 'time'; s.value = b.start || ''; s.onchange = () => b.start = s.value
+      const e = el('input', 'tt-time'); e.type = 'time'; e.value = b.end || ''; e.onchange = () => b.end = e.value
+      const t = el('select', 'tt-type')
+      for (const st of SCHEDULE_TYPES) { const o = el('option', null, st.label); o.value = st.id; if (b.type === st.id) o.selected = true; t.appendChild(o) }
+      t.onchange = () => b.type = t.value
+      const del = el('button', 'mini no', '✕'); del.onclick = () => { blocks.splice(i, 1); renderList() }
+      row.append(s, el('span', 'tt-dash', '→'), e, t, del); list.appendChild(row)
+    })
+  }
+  renderList()
+  const add = el('button', 'hp-btn', '+ Add block'); add.onclick = () => { blocks.push({ start: '', end: '', type: 'session' }); renderList() }
+  card.appendChild(add)
+  const save = el('button', 'primary', 'Save Timetable')
+  save.onclick = () => { net.setScheduleAsChair(blocks.filter(b => b.start && b.end)); toast('Timetable saved'); m.remove() }
+  const close = el('button', 'hp-btn', 'Cancel'); close.onclick = () => m.remove()
+  card.append(save, close)
+  m.appendChild(card); overlay.appendChild(m)
+}
+
+// ---------------- Points & Motions ----------------
+function openPointsMenu() {
+  const m = el('div', 'modal'); m.style.pointerEvents = 'auto'
+  const card = el('div', 'modal-card')
+  card.appendChild(el('h3', null, '✋ Points & Motions'))
+  const items = [
+    'raises a Point of Order', 'raises a Point of Personal Privilege',
+    'raises a Point of Parliamentary Inquiry', 'requests a Right of Reply',
+    'motions for a Moderated Caucus', 'motions for an Unmoderated Caucus',
+    'motions to move into Voting Procedure',
+  ]
+  const wrap = el('div', 'pm-grid')
+  for (const it of items) { const b = el('button', 'hp-btn', it.replace(/^\w+s?\b/, s => s[0].toUpperCase() + s.slice(1))); b.onclick = () => { net.raisePoint(it); m.remove() } ; wrap.appendChild(b) }
+  card.appendChild(wrap)
+  const close = el('button', 'primary', 'Close'); close.onclick = () => m.remove(); card.appendChild(close)
+  m.appendChild(card); overlay.appendChild(m)
+}
+
 // ---------------- Dashboard ----------------
 function showDashboard() {
   clear(); overlay.style.pointerEvents = 'auto'
@@ -349,6 +459,8 @@ function showDashboard() {
   overlay.appendChild(card)
   buildHostPanel(host)
   buildResultModal()
+  buildPresetPanel()
+  buildElectionPanel()
 }
 
 // ---------------- 房主流程面板 ----------------
@@ -356,10 +468,27 @@ function buildHostPanel(container) {
   const panel = el('div', 'host-panel'); panel.style.pointerEvents = 'auto'
   panel.appendChild(el('h3', null, '⚙️ Chair — Run the Session'))
 
+  // 开始会议 + 选项
+  panel.appendChild(el('label', 'hp-label', 'Start the Session'))
+  const optWrap = el('div', 'hp-opts')
+  const mkCb = (label, checked) => { const w = el('label', 'hp-cb'); const c = el('input'); c.type = 'checkbox'; c.checked = checked; w.append(c, document.createTextNode(' ' + label)); optWrap.appendChild(w); return c }
+  const cCampaign = mkCb('Hold a Chairman election first', false)
+  const cFlow = mkCb('Auto-run the procedure', false)
+  const cTele = mkCb('Auto-teleport on timetable', false)
+  panel.appendChild(optWrap)
   const startBtn = el('button', 'hp-btn primary', '▶ Start Session')
-  startBtn.onclick = () => { net.hostStart(); toast('Session started') }
+  startBtn.onclick = () => { net.hostStartSession({ campaign: cCampaign.checked, autoFlow: cFlow.checked, autoTeleport: cTele.checked }); toast('Session started') }
   on('started', () => { startBtn.textContent = '● Session Running'; startBtn.disabled = true })
   panel.appendChild(startBtn)
+  const ttBtn = el('button', 'hp-btn', '🗓️ Edit Timetable'); ttBtn.onclick = () => openTimetable(); panel.appendChild(ttBtn)
+  const presetBtn = el('button', 'hp-btn', '📋 New Agenda Vote/Preset'); presetBtn.onclick = () => { net.hostBeginPreset(); toast('Agenda selection started') }; panel.appendChild(presetBtn)
+  // 运行中实时切换自动
+  const autoRow = el('div', 'hp-opts')
+  const wF = el('label', 'hp-cb'); const aFlow = el('input'); aFlow.type = 'checkbox'; aFlow.onchange = () => net.hostSetAuto({ autoFlow: aFlow.checked }); wF.append(aFlow, document.createTextNode(' Auto-run procedure'))
+  const wT = el('label', 'hp-cb'); const aTele = el('input'); aTele.type = 'checkbox'; aTele.onchange = () => net.hostSetAuto({ autoTeleport: aTele.checked }); wT.append(aTele, document.createTextNode(' Auto-teleport'))
+  autoRow.append(wF, wT); panel.appendChild(autoRow)
+  const syncAuto = () => { aFlow.checked = S.autoFlow; aTele.checked = S.autoTeleport }
+  on('orch', syncAuto); on('snapshot', syncAuto); syncAuto()
 
   // 流程阶段步进
   panel.appendChild(el('label', 'hp-label', 'Procedure'))

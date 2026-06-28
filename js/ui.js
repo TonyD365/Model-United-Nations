@@ -131,14 +131,22 @@ function enterHUD() {
 
   // 顶栏：阶段 + 议题
   const top = el('div', 'hud-top'); top.style.pointerEvents = 'auto'
-  const phaseEl = el('div', 'phase-chip'); const topicEl = el('div', 'topic-chip')
-  top.append(phaseEl, topicEl); overlay.appendChild(top)
+  const phaseEl = el('div', 'phase-chip'); const topicEl = el('div', 'topic-chip'); const chairEl = el('div', 'topic-chip')
+  top.append(phaseEl, topicEl, chairEl); overlay.appendChild(top)
   const refreshTop = () => {
     phaseEl.innerHTML = phaseLabel(S.agenda.phase)
     topicEl.textContent = S.agenda.topic ? '📌 ' + S.agenda.topic : 'No topic set'
     topicEl.style.display = S.agenda.topic ? '' : 'none'
   }
-  refreshTop(); on('agenda', refreshTop); on('snapshot', refreshTop)
+  const refreshChairChip = () => {
+    let nm = null
+    for (const iso in S.roster) if (S.roster[iso].peerId === S.chairman) nm = S.roster[iso].name
+    chairEl.textContent = nm ? '🪑 Chair: ' + nm : ''
+    chairEl.style.display = nm ? '' : 'none'
+  }
+  refreshTop(); refreshChairChip()
+  on('agenda', refreshTop); on('snapshot', refreshTop)
+  on('chairman', refreshChairChip); on('snapshot', refreshChairChip)
 
   // 底部控制条
   const bar = el('div', 'hud-bar'); bar.style.pointerEvents = 'auto'
@@ -158,9 +166,24 @@ function enterHUD() {
   }
   const hallBtn = el('button', 'ctl', '🏛️ Hall')
   hallBtn.onclick = () => { teleport(0, 16); toast('Back to the hall') }
+  const standBtn = el('button', 'ctl', '🧍 Stand Up'); standBtn.style.display = 'none'
+  standBtn.onclick = () => { net.releaseSeat() }
+  const updateStand = () => { standBtn.style.display = Object.values(S.seats).includes(local.selfId) ? '' : 'none' }
+  on('seats', updateStand); on('snapshot', updateStand)
+  const visitSel = el('select', 'ctl')
+  const refreshVisit = () => {
+    visitSel.innerHTML = '<option value="">🏢 Visit office…</option>'
+    for (const iso in S.roster) { const c = COUNTRY_BY_ISO[iso]; const o = el('option', null, c ? c.flag + ' ' + c.name : iso); o.value = iso; visitSel.appendChild(o) }
+  }
+  visitSel.onchange = () => {
+    const iso = visitSel.value, r = S.roster[iso]
+    if (r && r.booth != null) { const cc = boothCenter(r.booth); teleport(cc.x - 2.4, cc.z); toast('Visiting ' + (COUNTRY_BY_ISO[iso]?.name || iso) + "'s office") }
+    visitSel.selectedIndex = 0
+  }
+  on('roster', refreshVisit); refreshVisit()
   const signBtn = el('button', 'ctl', '🖊️ Sign')
-  signBtn.onclick = () => { net.signDocument('resolution'); toast('You signed the document') }
-  bar.append(micBtn, viewBtn, officeBtn, hallBtn, signBtn)
+  signBtn.onclick = () => { net.signDocument('resolution'); toast('You signed the resolution') }
+  bar.append(micBtn, viewBtn, standBtn, officeBtn, hallBtn, visitSel, signBtn)
   overlay.appendChild(bar)
 
   // 投票面板
@@ -265,6 +288,25 @@ function buildHostPanel(container) {
     no.onclick = () => { item.remove() }
     item.append(ok, no); rostList.appendChild(item)
   })
+
+  // 指定主席（尤其 dashboard 模式）
+  panel.appendChild(el('label', 'hp-label', 'Chairman'))
+  const chairRow = el('div', 'hp-row')
+  const chairSel = el('select', 'hp-input chair-sel')
+  const chairBtn = el('button', 'hp-btn', 'Designate')
+  chairBtn.onclick = () => { if (chairSel.value) { net.hostDesignateChairman(chairSel.value); toast('Chairman designated') } }
+  chairRow.append(chairSel, chairBtn); panel.appendChild(chairRow)
+  const chairNow = el('div', 'hp-mini'); panel.appendChild(chairNow)
+  const refreshChair = () => {
+    const prev = chairSel.value
+    chairSel.innerHTML = '<option value="">— pick delegate —</option>'
+    for (const iso in S.roster) { const r = S.roster[iso]; const c = COUNTRY_BY_ISO[iso]; const o = el('option', null, (c ? c.name : iso) + ' — ' + r.name); o.value = r.peerId; chairSel.appendChild(o) }
+    chairSel.value = prev
+    let nm = '(none)'
+    for (const iso in S.roster) if (S.roster[iso].peerId === S.chairman) nm = (COUNTRY_BY_ISO[iso]?.name || iso) + ' / ' + S.roster[iso].name
+    chairNow.textContent = 'Current: ' + nm
+  }
+  on('roster', refreshChair); on('chairman', refreshChair); on('snapshot', refreshChair); refreshChair()
 
   // 名册 + 发言权
   panel.appendChild(el('label', 'hp-label', 'Delegates'))

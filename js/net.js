@@ -59,9 +59,9 @@ function open(roomCode, onError) {
 }
 
 function defActions() {
-  ;['hello','snap','claimCty','ctySet','ctyRej','pos','world','seatReq','seatSet',
+  ;['hello','snap','claimCty','ctySet','ctyRej','pos','world','seatReq','seatSet','seatRel',
     'rostReq','rostDec','phase','start','voteOpen','voteCast','voteClose',
-    'signDoc','signSet','zone','floor','mic','chat','pLeft'].forEach(defAction)
+    'signDoc','signSet','zone','floor','mic','chat','pLeft','chair'].forEach(defAction)
 }
 
 function wire() {
@@ -114,8 +114,10 @@ function wire() {
   // ---- 座位 ----
   A.seatReq.on((d, peerId) => { if (local.isHost) hostSeat(peerId, d.seatId, false) })
   A.rostReq.on((d, peerId) => { if (local.isHost) emit('rostrumRequest', { peerId, seatId: d.seatId, name: nameOf(peerId) }) })
+  A.seatRel.on((d, peerId) => { if (local.isHost) hostReleaseSeat(peerId) })
   A.seatSet.on((d) => { applySeatSet(d) })
   A.rostDec.on((d) => { applySeatSet(d); emit('rostrumDecision', d) })
+  A.chair.on((d) => { S.chairman = d.peerId; emit('chairman') })
 
   // ---- 议程 / 议题 ----
   A.phase.on((d) => { S.agenda = { phase: d.phase, topic: d.topic }; emit('agenda') })
@@ -197,6 +199,22 @@ export function requestSeat(seatId, rostrum) {
     if (local.isHost) hostSeat(selfId, seatId, false)
     else A.seatReq.send({ seatId }, S.hostId)
   }
+}
+
+export function releaseSeat() {
+  if (local.isHost) hostReleaseSeat(selfId)
+  else A.seatRel.send({}, S.hostId)
+}
+
+export function hostDesignateChairman(peerId) {
+  if (!local.isHost) return
+  S.chairman = peerId
+  for (const sid in S.seats) if (S.seats[sid] === peerId) S.seats[sid] = null
+  S.seats['r1'] = peerId
+  const p = S.players[peerId]; if (p) p.seat = 'r1'
+  S.floor = peerId
+  A.chair.send({ peerId }); A.seatSet.send({ seatId: 'r1', peerId }); A.floor.send({ peerId })
+  applySeatSet({ seatId: 'r1', peerId }); emit('chairman'); emit('floor')
 }
 
 // 主机专用
@@ -303,12 +321,21 @@ function hostSeat(peerId, seatId, rostrum) {
   A.seatSet.send(payload); applySeatSet(payload)
 }
 
+function hostReleaseSeat(peerId) {
+  let freed = null
+  for (const sid in S.seats) if (S.seats[sid] === peerId) { S.seats[sid] = null; freed = sid }
+  const p = S.players[peerId]; if (p) p.seat = null
+  if (S.chairman === peerId) { S.chairman = null; A.chair.send({ peerId: null }); emit('chairman') }
+  if (freed) { const payload = { seatId: freed, peerId: null, who: peerId }; A.seatSet.send(payload); applySeatSet(payload) }
+}
+
 function applySeatSet(d) {
   // 释放该 peer 旧座
   for (const sid in S.seats) if (S.seats[sid] === d.peerId && sid !== d.seatId) S.seats[sid] = null
   S.seats[d.seatId] = d.peerId || null
   for (const id in S.players) if (S.players[id].seat === d.seatId && id !== d.peerId) S.players[id].seat = null
   if (d.peerId && S.players[d.peerId]) S.players[d.peerId].seat = d.seatId
+  if (!d.peerId && d.who && S.players[d.who]) S.players[d.who].seat = null
   emit('seats', d)
 }
 
@@ -333,6 +360,7 @@ function hostRemovePlayer(peerId) {
   if (iso) delete S.roster[iso]
   for (const sid in S.seats) if (S.seats[sid] === peerId) S.seats[sid] = null
   if (S.floor === peerId) S.floor = null
+  if (S.chairman === peerId) { S.chairman = null; A.chair.send({ peerId: null }) }
   delete S.players[peerId]
   delete pending[peerId]
   refreshOfficeSigns(S.roster)

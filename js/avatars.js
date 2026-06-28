@@ -1,20 +1,41 @@
-// 程序化方块角色（类 Roblox）+ 头顶昵称牌 + 远端插值
+// 真实骨骼动画人物（RobotExpressive, CC0）+ 头顶昵称牌 + 远端插值 + 走/坐动画
 import * as THREE from 'three'
+import { GLTFLoader, cloneSkeleton } from 'three-addons'
 import { scene } from './scene.js'
 
-const avatars = {}   // peerId -> { group, parts, target, nameSprite, anim }
+const avatars = {}            // peerId -> avatar 对象
+let base = null               // { scene, animations, scale, yOffset }
+let ready = false
+const pendingBuilders = []
 
-function makeNameSprite(text) {
+// 预加载角色模型（main.js 启动时调用）
+export function loadCharacter(url = './assets/models/character.glb') {
+  return new Promise((resolve, reject) => {
+    new GLTFLoader().load(url, gltf => {
+      const root = gltf.scene
+      // 计算缩放，使身高 ≈ 1.7m，并把脚底对齐到 y=0
+      const box = new THREE.Box3().setFromObject(root)
+      const size = new THREE.Vector3(); box.getSize(size)
+      const scale = 1.7 / (size.y || 1)
+      base = { scene: root, animations: gltf.animations, scale, minY: box.min.y }
+      ready = true
+      pendingBuilders.splice(0).forEach(fn => fn())
+      resolve(true)
+    }, undefined, err => { console.error('model load failed', err); reject(err) })
+  })
+}
+export function characterReady() { return ready }
+
+function makeNameSprite(text, color) {
   const c = document.createElement('canvas'); c.width = 256; c.height = 64
   const x = c.getContext('2d')
   x.fillStyle = 'rgba(0,0,0,0.55)'; roundRect(x, 8, 8, 240, 48, 10); x.fill()
-  x.fillStyle = '#fff'; x.font = 'bold 28px sans-serif'
+  x.fillStyle = color || '#fff'; x.font = 'bold 28px sans-serif'
   x.textAlign = 'center'; x.textBaseline = 'middle'
-  x.fillText(text.slice(0, 16), 128, 34)
+  x.fillText((text || '???').slice(0, 16), 128, 34)
   const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace
   const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }))
-  spr.scale.set(1.8, 0.45, 1)
-  spr.position.y = 2.25
+  spr.scale.set(1.9, 0.48, 1); spr.position.y = 2.15
   return spr
 }
 function roundRect(x, px, py, w, h, r) {
@@ -23,100 +44,114 @@ function roundRect(x, px, py, w, h, r) {
   x.arcTo(px, py + h, px, py, r); x.arcTo(px, py, px + w, py, r); x.closePath()
 }
 
-function buildBody(colorStr) {
-  const g = new THREE.Group()
-  const skin = new THREE.MeshStandardMaterial({ color: 0xf1c8a0, roughness: 0.8 })
-  const body = new THREE.MeshStandardMaterial({ color: new THREE.Color(colorStr), roughness: 0.7 })
-  const legMat = new THREE.MeshStandardMaterial({ color: 0x2b2f36, roughness: 0.8 })
+function buildModelInto(a, color) {
+  const model = cloneSkeleton(base.scene)
+  model.scale.setScalar(base.scale)
+  model.position.y = -base.minY * base.scale     // 脚底贴地
+  model.traverse(o => {
+    if (o.isMesh) {
+      o.castShadow = true
+      // 克隆材质并轻微染上代表色，便于区分玩家
+      if (o.material) {
+        o.material = o.material.clone()
+        if (color && o.material.color) o.material.color.lerp(new THREE.Color(color), 0.35)
+      }
+    }
+  })
+  a.group.add(model)
+  a.model = model
+  // 动画
+  a.mixer = new THREE.AnimationMixer(model)
+  a.actions = {}
+  for (const [key, name] of [['idle', 'Idle'], ['walk', 'Walking'], ['sit', 'Sitting']]) {
+    const clip = THREE.AnimationClip.findByName(base.animations, name)
+    if (clip) a.actions[key] = a.mixer.clipAction(clip)
+  }
+  a.cur = null
+  playAnim(a, 'idle')
+}
 
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.7, 0.35), body)
-  torso.position.y = 1.1; torso.castShadow = true
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.42, 0.42), skin)
-  head.position.y = 1.68; head.castShadow = true
-
-  const armL = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.6, 0.16), body)
-  armL.position.set(-0.4, 1.15, 0); armL.geometry.translate(0, -0.3, 0); armL.position.y = 1.45
-  const armR = armL.clone(); armR.position.x = 0.4
-
-  const legL = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.7, 0.18), legMat)
-  legL.geometry.translate(0, -0.35, 0); legL.position.set(-0.15, 0.75, 0); legL.castShadow = true
-  const legR = legL.clone(); legR.position.x = 0.15
-
-  g.add(torso, head, armL, armR, legL, legR)
-  return { group: g, parts: { armL, armR, legL, legR } }
+function playAnim(a, name) {
+  if (!a.actions || a.cur === name || !a.actions[name]) return
+  const next = a.actions[name]
+  next.reset().setEffectiveWeight(1).fadeIn(0.2).play()
+  if (a.cur && a.actions[a.cur]) a.actions[a.cur].fadeOut(0.2)
+  a.cur = name
 }
 
 export function spawnAvatar(peerId, { name, color }) {
   if (avatars[peerId]) return avatars[peerId]
-  const { group, parts } = buildBody(color || '#cccccc')
-  const nameSprite = makeNameSprite(name || '???')
+  const group = new THREE.Group()
+  // 代表色脚环
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.32, 0.46, 24),
+    new THREE.MeshBasicMaterial({ color: new THREE.Color(color || '#ccc'), transparent: true, opacity: 0.85, side: THREE.DoubleSide }))
+  ring.rotation.x = -Math.PI / 2; ring.position.y = 0.02
+  group.add(ring)
+  const nameSprite = makeNameSprite(name, color)
   group.add(nameSprite)
   scene.add(group)
+
   const a = {
-    group, parts, nameSprite, anim: 0, walkT: 0,
-    target: { x: group.position.x, y: 0, z: group.position.z, ry: 0 },
+    group, nameSprite, model: null, mixer: null, actions: null, cur: null,
+    anim: 0, seated: false,
+    target: { x: 0, y: 0, z: 0, ry: 0 },
   }
   avatars[peerId] = a
+  if (ready) buildModelInto(a, color)
+  else pendingBuilders.push(() => buildModelInto(a, color))
   return a
 }
 
 export function removeAvatar(peerId) {
   const a = avatars[peerId]; if (!a) return
   scene.remove(a.group)
-  a.nameSprite.material.map.dispose()
+  a.nameSprite.material.map?.dispose()
   delete avatars[peerId]
 }
 
 export function getAvatar(peerId) { return avatars[peerId] }
-export function avatarPosition(peerId) {
-  const a = avatars[peerId]; return a ? a.group.position : null
-}
+export function avatarPosition(peerId) { const a = avatars[peerId]; return a ? a.group.position : null }
 
-export function setAvatarName(peerId, name) {
+export function setAvatarName(peerId, name, color) {
   const a = avatars[peerId]; if (!a) return
-  a.group.remove(a.nameSprite)
-  a.nameSprite.material.map.dispose()
-  a.nameSprite = makeNameSprite(name)
-  a.group.add(a.nameSprite)
+  a.group.remove(a.nameSprite); a.nameSprite.material.map?.dispose()
+  a.nameSprite = makeNameSprite(name, color); a.group.add(a.nameSprite)
 }
 
-// 远端更新目标（来自 world 广播）
 export function setAvatarTarget(peerId, t) {
   const a = avatars[peerId]; if (!a) return
   a.target.x = t.x; a.target.y = t.y; a.target.z = t.z; a.target.ry = t.ry
   a.anim = t.anim || 0
 }
+export function setAvatarSeated(peerId, seated) { const a = avatars[peerId]; if (a) a.seated = seated }
+export function setSelfAnim(peerId, anim, seated) {
+  const a = avatars[peerId]; if (!a) return
+  a.anim = anim; a.seated = seated
+}
 
-// 直接放置（落座/快照初始）
 export function placeAvatar(peerId, x, y, z, ry) {
   const a = avatars[peerId]; if (!a) return
   a.group.position.set(x, y, z); a.group.rotation.y = ry
   a.target = { x, y, z, ry }
 }
 
-// 每帧插值所有远端 avatar（自己的 avatar 由 player.js 直接驱动，不在此列）
+// 每帧：插值远端 + 推进动画 + 切换 idle/walk/sit
 export function updateAvatars(dt, selfId) {
   for (const id in avatars) {
     const a = avatars[id]
     if (id !== selfId) {
-      const p = a.group.position
-      p.x += (a.target.x - p.x) * Math.min(1, dt * 12)
-      p.y += (a.target.y - p.y) * Math.min(1, dt * 12)
-      p.z += (a.target.z - p.z) * Math.min(1, dt * 12)
+      const p = a.group.position, k = Math.min(1, dt * 12)
+      p.x += (a.target.x - p.x) * k
+      p.y += (a.target.y - p.y) * k
+      p.z += (a.target.z - p.z) * k
       let dr = a.target.ry - a.group.rotation.y
       while (dr > Math.PI) dr -= Math.PI * 2
       while (dr < -Math.PI) dr += Math.PI * 2
-      a.group.rotation.y += dr * Math.min(1, dt * 12)
+      a.group.rotation.y += dr * k
     }
-    // 走路摆动
-    if (a.anim === 1) {
-      a.walkT += dt * 9
-      const s = Math.sin(a.walkT) * 0.5
-      a.parts.legL.rotation.x = s; a.parts.legR.rotation.x = -s
-      a.parts.armL.rotation.x = -s; a.parts.armR.rotation.x = s
-    } else {
-      for (const k of ['legL', 'legR', 'armL', 'armR'])
-        a.parts[k].rotation.x *= (1 - Math.min(1, dt * 8))
-    }
+    const want = a.seated ? 'sit' : (a.anim === 1 ? 'walk' : 'idle')
+    playAnim(a, want)
+    a.mixer && a.mixer.update(dt)
   }
 }

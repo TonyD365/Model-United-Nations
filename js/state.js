@@ -24,6 +24,7 @@ export const S = {
   vote: null,                // { voteId,title,options,open,casts:{iso:choice},tally,result }
   signed: {},                // docId -> [iso]
   floor: null,               // 拥有大厅广播发言权的 peerId
+  chairman: null,            // 被指定为主席的 peerId
 }
 
 // 本地（仅本端）状态
@@ -65,6 +66,7 @@ export function makeSnapshot() {
     vote: S.vote,
     signed: S.signed,
     floor: S.floor,
+    chairman: S.chairman,
   }
 }
 
@@ -82,6 +84,7 @@ export function applySnapshot(snap) {
   S.vote = snap.vote || null
   S.signed = snap.signed || {}
   S.floor = snap.floor || null
+  S.chairman = snap.chairman || null
   emit('snapshot')
   emit('roster')
   emit('agenda')

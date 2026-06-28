@@ -54,5 +54,5 @@ export const TOPICS = [
 // 投票选项预设
 export const VOTE_OPTIONS = ['Yes', 'No', 'Abstain']
 
-// 可走范围（含大厅 + 右侧办公区走廊）
-export const FLOOR_BOUNDS = { minX: -22, maxX: 78, minZ: -16, maxZ: 38 }
+// 可走范围（含大厅 + 右侧办公区）
+export const FLOOR_BOUNDS = { minX: -24, maxX: 128, minZ: -28, maxZ: 32 }

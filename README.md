@@ -16,10 +16,12 @@ player's browser acts as the authoritative **host**.
 - **Room codes** — create a room (the code is also the encryption password) and share it.
 - **Two host modes** — *Host as Player* (chair has an avatar) or *Dashboard Only* (control panel, no avatar).
 - **Unique country selection** — each UN member state can be held by only one delegate; the host arbitrates.
-- **Roblox-style movement** — WASD + hold **right mouse button** to look (scroll to zoom); mobile gets a virtual joystick + drag-to-look.
-- **Procedural GA hall** — tiered delegate desks, central rostrum with restricted top seats, UN-emblem backdrop, gold dome.
-- **Country offices** — walk into any delegate's office booth; sign documents during the office phase.
-- **Chair controls** — start session, advance the agenda phases, set the topic, open/close votes with tally, approve rostrum seats, grant the floor.
+- **Roblox-style movement** — WASD + hold **right mouse button** to drag the camera (scroll to zoom); first-person moves where you look; mobile gets a virtual joystick + drag-to-look. Mouse up looks up.
+- **Rigged 3D avatars** — animated character (Idle / Walking / Sitting) tinted per delegate, with floating nameplates and a country-colored ground ring.
+- **Procedural GA hall** — solid tiered delegate desks with chairs facing the rostrum, restricted top rostrum seats, UN-emblem backdrop, gold dome. Click a seat during Session/Debate to sit; **Stand Up** to leave.
+- **Country offices (separate rooms outside the hall)** — each enclosed office has a wall-mounted flag, a desk with a luxury chair, two guest chairs, and signable documents. Walk in or **Visit** another delegate's office.
+- **Collision** — desks, walls and the rostrum block movement; the third-person camera pulls in to avoid clipping through walls.
+- **Chair controls** — start session, advance the agenda phases, set the topic, open/close votes with tally, approve rostrum seats, grant the floor, and **designate a Chairman** (works in Dashboard-only mode).
 - **Voice chat** — proximity-based in the hall, room-based inside offices, and hall-wide when the chair grants you the floor.
 
 ## Run locally
@@ -62,5 +64,7 @@ peer IDs: create a room in one, join with the code in the other.
 
 ## Credits / license
 
-Code is MIT (see `LICENSE`). Avatars and the hall are generated procedurally
-from Three.js primitives — no third-party model assets are bundled.
+Code is MIT (see `LICENSE`). The hall and offices are generated procedurally
+from Three.js primitives. The avatar model `assets/models/character.glb`
+("RobotExpressive") is **CC0** by Tomás Laulhé (Quaternius), modified by Don
+McCurdy — free for any use, no attribution required.

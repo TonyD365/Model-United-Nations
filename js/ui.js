@@ -212,7 +212,8 @@ function enterHUD() {
   overlay.appendChild(dock)
 
   if (isMobile) buildMobileControls()
-  if (isHost()) buildHostPanel()
+  ensureChairPanel()
+  on('chairman', ensureChairPanel); on('snapshot', ensureChairPanel)
 
   on('floor', () => { if (S.floor === local.selfId) toast('You have the floor — the whole hall can hear you') })
   on('seats', d => { if (d && d.peerId === local.selfId && d.seatId) toast('You are now seated') })
@@ -630,6 +631,15 @@ function showDashboard() {
 }
 
 // ---------------- 房主流程面板 ----------------
+// 房主或（被指派/选出的）主席都能看到流程面板；非房主主席的指令经 net 转发给房主权威执行
+let chairPanelBuilt = false
+function amChair() { return !!(S.chairman && S.chairman === local.selfId) }
+function ensureChairPanel() {
+  const show = isHost() || amChair()
+  if (show && !chairPanelBuilt) { buildHostPanel(); chairPanelBuilt = true }
+  const p = overlay.querySelector('.host-panel')
+  if (p) p.style.display = show ? '' : 'none'
+}
 function buildHostPanel(container) {
   const panel = el('div', 'host-panel'); panel.style.pointerEvents = 'auto'
   panel.appendChild(el('h3', null, '⚙️ Chair — Run the Session'))
@@ -765,21 +775,23 @@ function buildHostPanel(container) {
     item.append(ok, no); rostList.appendChild(item)
   })
 
-  // 指定主席
-  panel.appendChild(el('label', 'hp-label', 'Chairman'))
-  const chairRow = el('div', 'hp-row')
-  const chairSel = el('select', 'hp-input chair-sel'); const chairBtn = el('button', 'hp-btn', 'Designate')
-  chairBtn.onclick = () => { if (chairSel.value) { net.hostDesignateChairman(chairSel.value); toast('Chairman designated') } }
-  chairRow.append(chairSel, chairBtn); panel.appendChild(chairRow)
-  const chairNow = el('div', 'hp-mini'); panel.appendChild(chairNow)
-  const refreshChair = () => {
-    const prev = chairSel.value; chairSel.innerHTML = '<option value="">— pick delegate —</option>'
-    for (const iso in S.roster) { const r = S.roster[iso]; const o = el('option', null, (COUNTRY_BY_ISO[iso]?.name || iso) + ' — ' + r.name); o.value = r.peerId; chairSel.appendChild(o) }
-    chairSel.value = prev
-    let nm = '(none)'; for (const iso in S.roster) if (S.roster[iso].peerId === S.chairman) nm = (COUNTRY_BY_ISO[iso]?.name || iso)
-    chairNow.textContent = 'Current: ' + nm
+  // 指定主席（仅房主可指派；主席自身不能改派）
+  if (isHost()) {
+    panel.appendChild(el('label', 'hp-label', 'Chairman'))
+    const chairRow = el('div', 'hp-row')
+    const chairSel = el('select', 'hp-input chair-sel'); const chairBtn = el('button', 'hp-btn', 'Designate')
+    chairBtn.onclick = () => { if (chairSel.value) { net.hostDesignateChairman(chairSel.value); toast('Chairman designated') } }
+    chairRow.append(chairSel, chairBtn); panel.appendChild(chairRow)
+    const chairNow = el('div', 'hp-mini'); panel.appendChild(chairNow)
+    const refreshChair = () => {
+      const prev = chairSel.value; chairSel.innerHTML = '<option value="">— pick delegate —</option>'
+      for (const iso in S.roster) { const r = S.roster[iso]; const o = el('option', null, (COUNTRY_BY_ISO[iso]?.name || iso) + ' — ' + r.name); o.value = r.peerId; chairSel.appendChild(o) }
+      chairSel.value = prev
+      let nm = '(none)'; for (const iso in S.roster) if (S.roster[iso].peerId === S.chairman) nm = (COUNTRY_BY_ISO[iso]?.name || iso)
+      chairNow.textContent = 'Current: ' + nm
+    }
+    on('roster', refreshChair); on('chairman', refreshChair); on('snapshot', refreshChair); refreshChair()
   }
-  on('roster', refreshChair); on('chairman', refreshChair); on('snapshot', refreshChair); refreshChair()
 
   // 名册 + 发言权
   panel.appendChild(el('label', 'hp-label', 'Delegates'))
@@ -790,7 +802,16 @@ function buildHostPanel(container) {
       const item = el('div', 'hp-item', `${fimg(iso)} ${COUNTRY_BY_ISO[iso]?.name || iso} — ${r.name}`)
       const floorBtn = el('button', 'mini', S.floor === r.peerId ? '🔇' : '📢')
       floorBtn.onclick = () => { net.hostSetFloor(S.floor === r.peerId ? null : r.peerId); refreshRoster() }
-      item.appendChild(floorBtn); roster.appendChild(item)
+      item.appendChild(floorBtn)
+      // 踢人 / 封禁（仅房主，不能踢自己）
+      if (isHost() && r.peerId !== local.selfId) {
+        const kickBtn = el('button', 'mini no', '👢'); kickBtn.title = 'Kick'
+        kickBtn.onclick = () => { if (confirm(`Kick ${COUNTRY_BY_ISO[iso]?.name || iso} (${r.name})?`)) net.hostKick(r.peerId, false) }
+        const banBtn = el('button', 'mini no', '⛔'); banBtn.title = 'Ban'
+        banBtn.onclick = () => { if (confirm(`Ban ${COUNTRY_BY_ISO[iso]?.name || iso} (${r.name})? They cannot rejoin.`)) net.hostKick(r.peerId, true) }
+        item.append(kickBtn, banBtn)
+      }
+      roster.appendChild(item)
     }
   }
   on('roster', refreshRoster); on('floor', refreshRoster); on('snapshot', refreshRoster); refreshRoster()
@@ -843,11 +864,16 @@ function buildMobileControls() {
 
 // ---------------- 全局 ----------------
 function subscribe() {
-  on('ended', () => {
+  on('ended', reason => {
+    net.leaveRoom()
     clear(); overlay.style.pointerEvents = 'auto'
     const s = el('div', 'screen ended')
-    s.appendChild(el('h2', 'title', 'Session ended'))
-    s.appendChild(el('p', 'sub', 'The chair disconnected. The room has closed.'))
+    const title = reason === 'banned' ? 'You were banned' : reason === 'kicked' ? 'You were removed' : 'Session ended'
+    const sub = reason === 'banned' ? 'The host banned you from this room. You cannot rejoin with the same session.'
+      : reason === 'kicked' ? 'The host removed you from the room.'
+      : 'The chair disconnected. The room has closed.'
+    s.appendChild(el('h2', 'title', title))
+    s.appendChild(el('p', 'sub', sub))
     const b = el('button', 'primary', 'Back to start'); b.onclick = () => location.reload()
     s.appendChild(b); overlay.appendChild(s)
   })

@@ -67,7 +67,7 @@ function defActions() {
     'rostReq','rostDec','phase','start','voteOpen','voteCast','voteClose',
     'signDoc','signSet','zone','floor','mic','chat','pLeft','chair',
     'roll','gsl','draft','dSponsor','dSign','statsSet','result',
-    'sched','orch','elect','teleAll','say','splash','present'].forEach(defAction)
+    'sched','orch','elect','teleAll','say','splash','present','chairReq','kick'].forEach(defAction)
 }
 
 function wire() {
@@ -88,6 +88,7 @@ function wire() {
   // ---- 主机：响应握手，下发快照 ----
   A.hello.on((data, peerId) => {
     if (!local.isHost) return
+    if (banned.has(peerId)) { A.kick.send({ peerId, ban: true }, peerId); return }   // 封禁者拒绝入场
     pending[peerId] = data.name || '???'
     pendingStyle[peerId] = data.style || DEFAULT_STYLE
     A.snap.send(makeSnapshot(), peerId)
@@ -160,6 +161,13 @@ function wire() {
     if (d.election) { S.election = d.election; emit('election') }
     else if (local.isHost && d.vote) hostElectionVote(peer, d.vote)
   })
+  // 主席（可能非房主）驱动流程：转发给房主权威执行
+  A.chairReq.on((d, peer) => {
+    if (!local.isHost || peer !== S.chairman) return
+    const fn = CHAIR_CMDS[d.cmd]; if (fn) fn(...(d.args || []))
+  })
+  // 房主踢人/封禁
+  A.kick.on((d) => { if (d.peerId === selfId) emit('ended', d.ban ? 'banned' : 'kicked') })
   A.teleAll.on((d) => emit('teleport', d.type))
 
   // —— 庭审式：对话 / 弹屏 / 展示文件 ——
@@ -290,6 +298,25 @@ export function releaseSeat() {
   else A.seatRel.send({}, S.hostId)
 }
 
+// 主席（非房主）把流程指令转发给房主；房主端按 CHAIR_CMDS 调度真正执行
+function relayChair(cmd, args) {
+  if (local.selfId === S.chairman) A.chairReq.send({ cmd, args }, S.hostId)
+}
+// 函数声明会被提升，这里引用没问题
+const CHAIR_CMDS = {
+  setPhase: (...a) => hostSetPhase(...a),
+  gslNext: () => hostGslNext(),
+  setDraft: (...a) => hostSetDraft(...a),
+  openVote: (...a) => hostOpenVote(...a),
+  openResVote: (...a) => hostOpenResolutionVote(...a),
+  closeVote: () => hostCloseVote(),
+  setAuto: (...a) => hostSetAuto(...a),
+  startSession: (...a) => hostStartSession(...a),
+  beginPreset: () => hostBeginPreset(),
+  grantRostrum: (...a) => hostGrantRostrum(...a),
+  setFloor: (...a) => hostSetFloor(...a),
+}
+
 export function hostDesignateChairman(peerId) {
   if (!local.isHost) return
   S.chairman = peerId
@@ -308,12 +335,12 @@ export function hostStart() {
   A.start.send({ startedAt: S.startedAt }); emit('started')
 }
 export function hostSetPhase(phase, topic) {
-  if (!local.isHost) return
+  if (!local.isHost) return relayChair('setPhase', [phase, topic])
   S.agenda = { phase, topic: topic ?? S.agenda.topic }
   A.phase.send(S.agenda); emit('agenda')
 }
 export function hostGrantRostrum(seatId, peerId, ok) {
-  if (!local.isHost) return
+  if (!local.isHost) return relayChair('grantRostrum', [seatId, peerId, ok])
   if (ok) {
     for (const sid in S.seats) if (S.seats[sid] === peerId) S.seats[sid] = null
     S.seats[seatId] = peerId
@@ -323,18 +350,19 @@ export function hostGrantRostrum(seatId, peerId, ok) {
   applySeatSet({ seatId, peerId: ok ? peerId : null, ok })
 }
 export function hostSetFloor(peerId) {
-  if (!local.isHost) return
+  if (!local.isHost) return relayChair('setFloor', [peerId])
   S.floor = peerId; A.floor.send({ peerId }); emit('floor')
 }
 export function hostOpenVote(title, options, kind = 'generic', important = false, council = false) {
-  if (!local.isHost) return
+  if (!local.isHost) return relayChair('openVote', [title, options, kind, important, council])
   const voteId = 'v' + Date.now()
   S.vote = { voteId, title, options, kind, important, council, open: true, casts: {}, tally: null, result: null }
   A.voteOpen.send({ voteId, title, options, kind, important, council }); emit('vote')
 }
 // 对当前起草决议发起实质性表决（Yes/No/Abstain）。important=重要问题需 ⅔；council=安理会表决(仅理事国投票，9/15+否决)
 export function hostOpenResolutionVote(important = false, council = false) {
-  if (!local.isHost || !S.draft) return
+  if (!local.isHost) return relayChair('openResVote', [important, council])
+  if (!S.draft) return
   hostOpenVote('Resolution: ' + S.draft.title, ['Yes', 'No', 'Abstain'], 'resolution', important, council)
 }
 
@@ -348,7 +376,8 @@ export function castVote(choice) {
   else A.voteCast.send({ voteId: S.vote.voteId, choice }, S.hostId)
 }
 export function hostCloseVote() {
-  if (!local.isHost || !S.vote) return
+  if (!local.isHost) return relayChair('closeVote', [])
+  if (!S.vote) return
   const tally = {}
   for (const opt of S.vote.options) tally[opt] = 0
   for (const iso in S.vote.casts) { const c = S.vote.casts[iso]; if (tally[c] != null) tally[c]++ }
@@ -420,13 +449,13 @@ function hostGslAdd(peerId) {
   A.gsl.send({ gsl: S.gsl }); emit('gsl')
 }
 export function hostGslNext() {
-  if (!local.isHost) return
+  if (!local.isHost) return relayChair('gslNext', [])
   const next = S.gsl.shift() || null
   if (next) hostSetFloor(next)
   A.gsl.send({ gsl: S.gsl }); emit('gsl')
 }
 export function hostSetDraft(draft) {
-  if (!local.isHost) return
+  if (!local.isHost) return relayChair('setDraft', [draft])
   S.draft = { sponsors: [], signatories: [], ...draft }
   A.draft.send({ draft: S.draft }); emit('draft')
 }
@@ -490,7 +519,7 @@ export function setScheduleAsChair(schedule) {
   else if (local.selfId === S.chairman) A.sched.send({ schedReq: schedule }, S.hostId)
 }
 export function hostSetAuto(a) {
-  if (!local.isHost) return
+  if (!local.isHost) return relayChair('setAuto', [a])
   if ('autoTeleport' in a) S.autoTeleport = a.autoTeleport
   if ('autoFlow' in a) S.autoFlow = a.autoFlow
   if (!S.autoTeleport) lastTeleType = null
@@ -499,7 +528,7 @@ export function hostSetAuto(a) {
 
 // 房主点"开始" → 可选先竞选主席，否则进入选预设倒计时
 export function hostStartSession(opts) {
-  if (!local.isHost) return
+  if (!local.isHost) return relayChair('startSession', [opts])
   S.started = true; S.startedAt = Date.now()
   S.autoFlow = !!opts.autoFlow; S.autoTeleport = !!opts.autoTeleport
   A.start.send({ startedAt: S.startedAt })
@@ -509,7 +538,7 @@ export function hostStartSession(opts) {
   else hostBeginPreset()
 }
 export function hostBeginPreset() {
-  if (!local.isHost) return
+  if (!local.isHost) return relayChair('beginPreset', [])
   S.gameStage = 'preset'; S.preset = null; S.presetDeadline = Date.now() + PRESET_COUNTDOWN_MS
   broadcastOrch()
 }
@@ -574,6 +603,7 @@ export function hostCloseElection() {
 // ============ 主机内部逻辑 ============
 function hostAssignCountry(peerId, iso) {
   if (!COUNTRY_BY_ISO[iso]) return
+  if (banned.has(peerId)) { A.kick.send({ peerId, ban: true }, peerId); return }
   if (S.roster[iso]) { A.ctyRej.send({ iso, reason: 'taken' }, peerId); return }
   if (Object.keys(S.players).length >= MAX_PLAYERS) { A.ctyRej.send({ iso, reason: 'full' }, peerId); return }
   const base = peerId === selfId ? local.name : (pending[peerId] || nameOf(peerId) || '???')
@@ -666,6 +696,17 @@ function hostRemovePlayer(peerId) {
   A.pLeft.send({ peerId, iso: iso || null })
   emit('playerRemoved', peerId); emit('roster')
 }
+
+// 被封禁的 peerId（本场会话内有效）
+const banned = new Set()
+// 房主踢人/封禁
+export function hostKick(peerId, ban = false) {
+  if (!local.isHost || peerId === selfId) return
+  if (ban) banned.add(peerId)
+  A.kick.send({ peerId, ban: !!ban }, peerId)   // 通知被踢者退出
+  hostRemovePlayer(peerId)
+}
+export function isBanned(peerId) { return banned.has(peerId) }
 
 // ============ 辅助 ============
 // 房内昵称去重：若已被占用则追加 (2)(3)...

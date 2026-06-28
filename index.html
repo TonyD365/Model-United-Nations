@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Model United Nations</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🌐%3C/text%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="./css/style.css" />
+  <!-- Libraries are vendored under ./vendor (browser ESM bundles of three@0.185.0 and trystero@0.25.2/nostr)
+       so the site is fully self-contained on static hosting with no third-party CDN dependency. -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "./vendor/three.js",
+      "trystero": "./vendor/trystero.js"
+    }
+  }
+  </script>
+</head>
+<body>
+  <canvas id="app"></canvas>
+  <div id="overlay"></div>
+  <noscript>This app requires JavaScript and a modern browser with WebRTC.</noscript>
+  <script type="module" src="./js/main.js"></script>
+</body>
+</html>

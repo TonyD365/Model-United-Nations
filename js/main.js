@@ -2,7 +2,7 @@
 import * as THREE from 'three'
 import { camera, overviewCamera, setActiveCamera, getActiveCamera, onTick, startLoop, raycaster } from './scene.js'
 import { buildHall, ROSTRUM_SEAT_IDS, COLLIDERS } from './hall.js'
-import { buildOffices, zoneAt, DOCUMENTS, boothCenter } from './office.js'
+import { buildOffices, zoneAt, DOCUMENTS, boothCenter, updateDoors } from './office.js'
 import { VOICE_UPDATE_HZ, SEATED_PHASES } from './config.js'
 import { S, local, on } from './state.js'
 import { initPlayer, updatePlayer, position, setSeated, standUp, setColliders, teleport } from './player.js'
@@ -151,6 +151,7 @@ onTick(dt => {
     const st = updatePlayer(dt)
     net.setLocalState(st)
     net.updateZone(zoneAt(position(), S.roster))
+    updateDoors(position())
   }
   updateAvatars(dt, mode === 'player' ? local.selfId : '__none__')
   voiceAcc += dt

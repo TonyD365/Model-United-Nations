@@ -558,7 +558,8 @@ function hostAssignCountry(peerId, iso) {
   if (!COUNTRY_BY_ISO[iso]) return
   if (S.roster[iso]) { A.ctyRej.send({ iso, reason: 'taken' }, peerId); return }
   if (Object.keys(S.players).length >= MAX_PLAYERS) { A.ctyRej.send({ iso, reason: 'full' }, peerId); return }
-  const name = peerId === selfId ? local.name : (pending[peerId] || nameOf(peerId) || '???')
+  const base = peerId === selfId ? local.name : (pending[peerId] || nameOf(peerId) || '???')
+  const name = uniqueName(base, peerId)   // 房内昵称不可重名
   const color = colorOf(iso)
   const booth = freeBooth(S.roster)
   S.roster[iso] = { peerId, name, color, booth }
@@ -646,6 +647,16 @@ function hostRemovePlayer(peerId) {
 }
 
 // ============ 辅助 ============
+// 房内昵称去重：若已被占用则追加 (2)(3)...
+function uniqueName(base, peerId) {
+  base = (base || 'Delegate').trim() || 'Delegate'
+  const taken = new Set()
+  for (const iso in S.roster) if (S.roster[iso].peerId !== peerId) taken.add(S.roster[iso].name)
+  for (const id in S.players) if (id !== peerId && S.players[id].name) taken.add(S.players[id].name)
+  if (!taken.has(base)) return base
+  let n = 2; while (taken.has(`${base} (${n})`)) n++
+  return `${base} (${n})`
+}
 function nameOf(peerId) {
   const p = S.players[peerId]; if (p) return p.name
   for (const iso in S.roster) if (S.roster[iso].peerId === peerId) return S.roster[iso].name

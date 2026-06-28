@@ -76,29 +76,30 @@ export function buildOffices() {
     pushBox(c.x, c.z - RD / 2, RW, 0.2)
     pushBox(c.x, c.z + RD / 2, RW, 0.2)
 
-    // 办公桌靠后墙
-    const desk = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.9, 1.0), mat(palette.desk))
-    desk.position.set(RW / 2 - 1.1, 0.45, 0); desk.castShadow = true; g.add(desk)
-    const deskTop = new THREE.Mesh(new THREE.BoxGeometry(2.7, 0.08, 1.1), mat(palette.deskTop))
-    deskTop.position.set(RW / 2 - 1.1, 0.92, 0); g.add(deskTop)
-    COLLIDERS.push({ x: c.x + RW / 2 - 1.1, z: c.z, r: 0.9 })
+    // 办公桌靠后墙：窄边朝里(X)、长边沿墙(Z)。桌中心 x=1.7
+    const DX = 1.7
+    const desk = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.9, 2.4), mat(palette.desk))
+    desk.position.set(DX, 0.45, 0); desk.castShadow = true; g.add(desk)
+    const deskTop = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.08, 2.5), mat(palette.deskTop))
+    deskTop.position.set(DX, 0.92, 0); g.add(deskTop)
+    pushBox(c.x + DX, c.z, 0.9, 2.4)   // 桌子碰撞(贴合)
 
-    // 靠墙豪华座椅（朝门 -X），注册为可坐席位 oL{i}
+    // 行政豪华椅：在桌与后墙之间(x=2.6)，面向房门 -X
     const lux = makeLuxChair()
-    lux.position.set(RW / 2 - 0.4, 0, 0); lux.rotation.y = -Math.PI / 2; g.add(lux)
-    registerSeat('oL' + i, c.x + RW / 2 - 0.5, c.z, -Math.PI / 2)
+    lux.position.set(2.6, 0, 0); lux.rotation.y = Math.PI; g.add(lux)
+    registerSeat('oL' + i, c.x + 2.6, c.z, -Math.PI / 2)
 
-    // 对面 2 把来宾椅（朝桌 +X）
+    // 对面 2 把来宾椅(x=0.6)，面向办公桌 +X
     ;[-0.9, 0.9].forEach((dz, k) => {
       const ch = makeGuestChair()
-      ch.position.set(RW / 2 - 3.0, 0, dz); ch.rotation.y = Math.PI / 2; g.add(ch)
-      registerSeat('oG' + i + '_' + k, c.x + RW / 2 - 3.0, c.z + dz, Math.PI / 2)
+      ch.position.set(0.6, 0, dz); ch.rotation.y = 0; g.add(ch)
+      registerSeat('oG' + i + '_' + k, c.x + 0.6, c.z + dz, Math.PI / 2)
     })
 
     // 桌上可签字文件（2 份）
-    ;[-0.5, 0.4].forEach((dz, k) => {
+    ;[-0.45, 0.45].forEach((dz, k) => {
       const paper = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.04, 0.8), new THREE.MeshStandardMaterial({ color: 0xfdfdf5, roughness: 0.6 }))
-      paper.position.set(RW / 2 - 1.1, 0.98, dz); paper.rotation.y = 0.1 * k
+      paper.position.set(DX, 0.97, dz); paper.rotation.y = Math.PI / 2 + 0.1 * k
       paper.userData.signDoc = k === 0 ? 'resolution' : 'treaty'
       paper.userData.booth = i
       g.add(paper); DOCUMENTS.push(paper)

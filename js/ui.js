@@ -1,6 +1,6 @@
 // 界面（全英文）：大厅入口 / 选国 / HUD / 国家数据 / 决议·投票 / 房主流程面板 / 移动端摇杆
 import { S, local, on, isHost } from './state.js'
-import { PHASES, TOPICS, VOTE_OPTIONS, MAX_PLAYERS, SEATED_PHASES, SESSION_PRESETS, SCHEDULE_TYPES, PERMANENT_MEMBERS } from './config.js'
+import { PHASES, TOPICS, VOTE_OPTIONS, MAX_PLAYERS, SEATED_PHASES, SESSION_PRESETS, SCHEDULE_TYPES, PERMANENT_MEMBERS, CHARACTER_STYLES, DEFAULT_STYLE } from './config.js'
 import { COUNTRIES, COUNTRY_BY_ISO } from './countries.js'
 import * as net from './net.js'
 import { setMicEnabled, hasVoice, micEnabled } from './voice.js'
@@ -91,6 +91,24 @@ function showCountryPicker(isHostPlayer) {
   const card = el('div', 'screen picker')
   card.appendChild(el('h2', 'title', 'Choose your country'))
   card.appendChild(el('p', 'sub', 'Each country can be held by only one delegate. You will represent its real-world data.'))
+
+  // 人物外观选择
+  let chosenStyle = localStorage.getItem('mun_style') || DEFAULT_STYLE
+  if (!CHARACTER_STYLES.some(s => s.id === chosenStyle)) chosenStyle = DEFAULT_STYLE
+  net.setLocalStyle(chosenStyle)
+  card.appendChild(el('label', 'pick-label', 'Your delegate appearance'))
+  const styleRow = el('div', 'style-row')
+  CHARACTER_STYLES.forEach(s => {
+    const b = el('button', 'style-opt' + (s.id === chosenStyle ? ' on' : ''), s.label)
+    b.style.borderColor = s.tint
+    b.onclick = () => {
+      chosenStyle = s.id; localStorage.setItem('mun_style', s.id); net.setLocalStyle(s.id)
+      styleRow.querySelectorAll('.style-opt').forEach(x => x.classList.remove('on')); b.classList.add('on')
+    }
+    styleRow.appendChild(b)
+  })
+  card.appendChild(styleRow)
+
   const search = el('input', 'search'); search.placeholder = 'Search…'; card.appendChild(search)
   const grid = el('div', 'country-grid'); card.appendChild(grid)
   function render(filter = '') {

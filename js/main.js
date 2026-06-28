@@ -28,7 +28,7 @@ function onEnterScene() {
   mode = 'player'
   local.inScene = true
   setActiveCamera(camera)
-  initPlayer(local.selfId, { name: local.name, color: local.color })
+  initPlayer(local.selfId, { name: local.name, color: local.color, style: local.style })
   const me = S.players[local.selfId]; if (me) teleport(me.x, me.z)   // 生成在中庭开阔处
   initVoice(net.getRoom()).then(ok => { if (!ok) toast('Mic blocked — allow it to talk') })
   spawnExisting()
@@ -48,7 +48,7 @@ function spawnExisting() {
     const p = S.players[id]
     if (!p.iso) continue
     if (id === local.selfId && mode === 'player') continue
-    spawnAvatar(id, { name: p.name, color: p.color })
+    spawnAvatar(id, { name: p.name, color: p.color, style: p.style })
     placeAvatar(id, p.x, p.y, p.z, p.ry)
   }
 }
@@ -68,7 +68,7 @@ on('playerAdded', id => {
   if (id === local.selfId && mode === 'player') return
   if (mode === null) return
   const p = S.players[id]; if (!p || !p.iso) return
-  if (!getAvatar(id)) { spawnAvatar(id, { name: p.name, color: p.color }); placeAvatar(id, p.x, p.y, p.z, p.ry) }
+  if (!getAvatar(id)) { spawnAvatar(id, { name: p.name, color: p.color, style: p.style }); placeAvatar(id, p.x, p.y, p.z, p.ry) }
   else setAvatarName(id, p.name, p.color)
 })
 on('playerRemoved', id => { removeAvatar(id); removeVoicePeer(id) })
@@ -90,7 +90,7 @@ on('teleport', type => {
 on('world', arr => {
   for (const e of arr) {
     if (e.id === local.selfId) continue
-    if (!getAvatar(e.id)) { const p = S.players[e.id]; spawnAvatar(e.id, { name: p?.name || '???', color: p?.color || '#ccc' }) }
+    if (!getAvatar(e.id)) { const p = S.players[e.id]; spawnAvatar(e.id, { name: p?.name || '???', color: p?.color || '#ccc', style: p?.style }) }
     setAvatarTarget(e.id, e)
   }
 })

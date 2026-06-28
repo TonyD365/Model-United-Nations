@@ -42,6 +42,12 @@ input, select, .search {
 
 /* ---------- country picker ---------- */
 .picker { width: min(760px, 94vw); }
+.pick-label { display: block; margin: 12px 0 6px; font-size: 13px; opacity: 0.85; }
+.style-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.style-opt { padding: 8px 12px; border-radius: 10px; font-size: 13px; color: #eaf2ee;
+  background: rgba(255,255,255,0.05); border: 2px solid rgba(255,255,255,0.18); cursor: pointer; }
+.style-opt:hover { background: rgba(201,162,39,0.16); }
+.style-opt.on { background: rgba(201,162,39,0.28); box-shadow: 0 0 0 2px rgba(201,162,39,0.5) inset; }
 .country-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-top: 14px; max-height: 56vh; overflow: auto; }
 .country { display: flex; align-items: center; gap: 8px; padding: 10px; border-radius: 10px; background: rgba(255,255,255,0.05); color: #eaf2ee; font-size: 13px; text-align: left; }
 .country:hover { background: rgba(201,162,39,0.18); }

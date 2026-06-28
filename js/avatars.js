@@ -2,6 +2,9 @@
 import * as THREE from 'three'
 import { GLTFLoader, cloneSkeleton } from 'three-addons'
 import { scene } from './scene.js'
+import { CHARACTER_STYLES, DEFAULT_STYLE } from './config.js'
+
+const styleById = id => CHARACTER_STYLES.find(s => s.id === id) || CHARACTER_STYLES.find(s => s.id === DEFAULT_STYLE)
 
 const avatars = {}            // peerId -> avatar 对象
 let base = null               // { scene, animations, scale, yOffset }
@@ -44,22 +47,30 @@ function roundRect(x, px, py, w, h, r) {
   x.arcTo(px, py + h, px, py, r); x.arcTo(px, py, px + w, py, r); x.closePath()
 }
 
-function buildModelInto(a, color) {
+function buildModelInto(a, color, styleId) {
+  const style = styleById(styleId)
+  const bodyTint = new THREE.Color(style.tint)
   const model = cloneSkeleton(base.scene)
   model.scale.setScalar(base.scale)
   model.position.y = -base.minY * base.scale     // 脚底贴地
   model.traverse(o => {
     if (o.isMesh) {
       o.castShadow = true
-      // 克隆材质并轻微染上代表色，便于区分玩家
+      // 克隆材质并按所选外观染色（再混入代表色一点点）
       if (o.material) {
         o.material = o.material.clone()
-        if (color && o.material.color) o.material.color.lerp(new THREE.Color(color), 0.35)
+        if (o.material.color) {
+          o.material.color.lerp(bodyTint, 0.55)
+          if (color) o.material.color.lerp(new THREE.Color(color), 0.12)
+        }
       }
     }
   })
   a.group.add(model)
   a.model = model
+  // 头部配件（程序化）
+  const acc = makeAccessory(style.accent)
+  if (acc) { a.group.add(acc); a.accessory = acc }
   // 动画
   a.mixer = new THREE.AnimationMixer(model)
   a.actions = {}
@@ -79,7 +90,56 @@ function playAnim(a, name) {
   a.cur = name
 }
 
-export function spawnAvatar(peerId, { name, color }) {
+// 程序化头部/身体配件（不依赖外部模型，使外观更易区分）
+function makeAccessory(accent) {
+  if (!accent || accent === 'none') return null
+  const g = new THREE.Group()
+  const HEAD_Y = 1.62          // 头顶大致高度（米）
+  const mm = (c, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.6, ...o })
+  if (accent === 'tophat') {
+    const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.26, 0.03, 20), mm(0x15151c))
+    brim.position.y = HEAD_Y + 0.04
+    const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.32, 20), mm(0x15151c))
+    crown.position.y = HEAD_Y + 0.21
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.185, 0.185, 0.07, 20), mm(0x7a1f2a))
+    band.position.y = HEAD_Y + 0.08
+    g.add(brim, crown, band)
+  } else if (accent === 'cap') {
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(0.21, 16, 12, 0, Math.PI * 2, 0, Math.PI / 2), mm(0x1f6f8b))
+    dome.position.y = HEAD_Y + 0.02
+    const peak = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.03, 0.2), mm(0x14586e))
+    peak.position.set(0, HEAD_Y + 0.02, -0.24)
+    g.add(dome, peak)
+  } else if (accent === 'beret') {
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.2, 0.08, 18), mm(0x7a3b9c))
+    cap.position.y = HEAD_Y + 0.08; cap.rotation.z = 0.12
+    const nub = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 8), mm(0x4a205f))
+    nub.position.y = HEAD_Y + 0.14
+    g.add(cap, nub)
+  } else if (accent === 'crown') {
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.1, 18), mm(0xc9a227, { metalness: 0.7, roughness: 0.3 }))
+    band.position.y = HEAD_Y + 0.12
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2
+      const spike = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.12, 8), mm(0xd9b94a, { metalness: 0.7, roughness: 0.3 }))
+      spike.position.set(Math.cos(a) * 0.18, HEAD_Y + 0.22, Math.sin(a) * 0.18)
+      g.add(spike)
+    }
+    g.add(band)
+  } else if (accent === 'tie') {
+    const tie = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.34, 0.04), mm(0xb31f2a))
+    tie.position.set(0, 1.02, 0.13); g.add(tie)
+    const knot = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.08, 0.05), mm(0x8a141d))
+    knot.position.set(0, 1.2, 0.13); g.add(knot)
+  } else if (accent === 'sash') {
+    const sash = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.12, 0.5), mm(0xe8d27a, { metalness: 0.3 }))
+    sash.position.y = 1.0; sash.rotation.y = Math.PI / 4; sash.rotation.x = Math.PI / 2.6
+    g.add(sash)
+  }
+  return g
+}
+
+export function spawnAvatar(peerId, { name, color, style }) {
   if (avatars[peerId]) return avatars[peerId]
   const group = new THREE.Group()
   // 代表色脚环
@@ -98,8 +158,8 @@ export function spawnAvatar(peerId, { name, color }) {
     target: { x: 0, y: 0, z: 0, ry: 0 },
   }
   avatars[peerId] = a
-  if (ready) buildModelInto(a, color)
-  else pendingBuilders.push(() => buildModelInto(a, color))
+  if (ready) buildModelInto(a, color, style)
+  else pendingBuilders.push(() => buildModelInto(a, color, style))
   return a
 }
 

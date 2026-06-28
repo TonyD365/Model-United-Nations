@@ -77,6 +77,19 @@ export const SESSION_PRESETS = [
 // 安理会常任理事国（拥有否决权 veto）：中、法、俄、英、美
 export const PERMANENT_MEMBERS = ['CN', 'FR', 'RU', 'GB', 'US']
 
+// 可选人物外观（同一骨骼模型 + 身体染色 + 程序化头部配件，玩家自选）
+export const CHARACTER_STYLES = [
+  { id: 'classic', label: '🧍 Classic',  tint: '#9aa3ad', accent: 'none' },
+  { id: 'navy',    label: '🤵 Diplomat', tint: '#27406b', accent: 'tie' },
+  { id: 'emerald', label: '🥋 Emerald',  tint: '#2f7d52', accent: 'none' },
+  { id: 'crimson', label: '🧥 Crimson',  tint: '#9c2b33', accent: 'sash' },
+  { id: 'tophat',  label: '🎩 Envoy',    tint: '#2a2a33', accent: 'tophat' },
+  { id: 'cap',     label: '🧢 Casual',   tint: '#1f6f8b', accent: 'cap' },
+  { id: 'beret',   label: '🎨 Beret',    tint: '#7a3b9c', accent: 'beret' },
+  { id: 'royal',   label: '👑 Royal',    tint: '#b8902a', accent: 'crown' },
+]
+export const DEFAULT_STYLE = 'classic'
+
 export const PRESET_COUNTDOWN_MS = 60_000   // 开会前 1 分钟选预设，超时自动选
 export const AUTO_PHASE_MS = 30_000         // 自动流程每阶段时长
 

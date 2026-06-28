@@ -1,6 +1,6 @@
 // Trystero 联机封装：房间、所有 action、主机权威逻辑、主机选举/离开处理
 import { joinRoom, selfId } from 'trystero'
-import { APP_ID, MAX_PLAYERS, WORLD_HZ, POS_HZ, SESSION_PRESETS, PRESET_COUNTDOWN_MS, PHASE_DURATIONS, AUTO_PHASE_MS, PERMANENT_MEMBERS } from './config.js'
+import { APP_ID, MAX_PLAYERS, WORLD_HZ, POS_HZ, SESSION_PRESETS, PRESET_COUNTDOWN_MS, PHASE_DURATIONS, AUTO_PHASE_MS, PERMANENT_MEMBERS, DEFAULT_STYLE } from './config.js'
 import { S, local, emit, makeSnapshot, applySnapshot, isHost } from './state.js'
 import { COUNTRY_BY_ISO, colorOf } from './countries.js'
 import { freeBooth, refreshOfficeSigns } from './office.js'
@@ -10,6 +10,7 @@ import { nextPhase } from './agenda.js'
 let room = null
 const A = {}                 // action 名 -> { send, on }
 const pending = {}           // peerId -> name（已连接但未选国）
+const pendingStyle = {}      // peerId -> 外观 id（握手时上报）
 let lastLocal = null
 let lastSentZone = 'hall'
 let worldTimer = null, posTimer = null, orchTimer = null
@@ -71,7 +72,7 @@ function defActions() {
 
 function wire() {
   room.onPeerJoin = peerId => {
-    if (!local.isHost) A.hello.send({ name: local.name }, peerId) // 向(可能的)主机握手
+    if (!local.isHost) A.hello.send({ name: local.name, style: local.style }, peerId) // 向(可能的)主机握手
     emit('peerJoin', peerId)
   }
 
@@ -88,6 +89,7 @@ function wire() {
   A.hello.on((data, peerId) => {
     if (!local.isHost) return
     pending[peerId] = data.name || '???'
+    pendingStyle[peerId] = data.style || DEFAULT_STYLE
     A.snap.send(makeSnapshot(), peerId)
   })
 
@@ -261,6 +263,9 @@ export function claimCountry(iso) {
   if (local.isHost) hostAssignCountry(selfId, iso)
   else A.claimCty.send({ iso }, S.hostId)
 }
+
+// 玩家在选国前选择人物外观
+export function setLocalStyle(styleId) { local.style = styleId || DEFAULT_STYLE }
 
 export function updateZone(zone) {
   if (zone === lastSentZone) return
@@ -561,12 +566,13 @@ function hostAssignCountry(peerId, iso) {
   const base = peerId === selfId ? local.name : (pending[peerId] || nameOf(peerId) || '???')
   const name = uniqueName(base, peerId)   // 房内昵称不可重名
   const color = colorOf(iso)
+  const style = peerId === selfId ? (local.style || DEFAULT_STYLE) : (pendingStyle[peerId] || DEFAULT_STYLE)
   const booth = freeBooth(S.roster)
   S.roster[iso] = { peerId, name, color, booth }
   const spawn = spawnPoint()
-  S.players[peerId] = { id: peerId, name, iso, color, x: spawn.x, y: 0, z: spawn.z, ry: 0, anim: 0, zone: 'hall', seat: null, stats: initStats(iso) }
-  delete pending[peerId]
-  const payload = { iso, peerId, name, color, booth, ok: true }
+  S.players[peerId] = { id: peerId, name, iso, color, style, x: spawn.x, y: 0, z: spawn.z, ry: 0, anim: 0, zone: 'hall', seat: null, stats: initStats(iso) }
+  delete pending[peerId]; delete pendingStyle[peerId]
+  const payload = { iso, peerId, name, color, style, booth, ok: true }
   A.ctySet.send(payload)
   applyCountrySet(payload)
 }
@@ -576,10 +582,11 @@ function applyCountrySet(d) {
   S.roster[d.iso] = { peerId: d.peerId, name: d.name, color: d.color, booth: d.booth }
   if (!S.players[d.peerId]) {
     const spawn = spawnPoint()
-    S.players[d.peerId] = { id: d.peerId, name: d.name, iso: d.iso, color: d.color, x: spawn.x, y: 0, z: spawn.z, ry: 0, anim: 0, zone: 'hall', seat: null, stats: initStats(d.iso) }
+    S.players[d.peerId] = { id: d.peerId, name: d.name, iso: d.iso, color: d.color, style: d.style || DEFAULT_STYLE, x: spawn.x, y: 0, z: spawn.z, ry: 0, anim: 0, zone: 'hall', seat: null, stats: initStats(d.iso) }
   } else {
     S.players[d.peerId].iso = d.iso
     S.players[d.peerId].color = d.color
+    S.players[d.peerId].style = d.style || DEFAULT_STYLE
   }
   refreshOfficeSigns(S.roster)
   if (d.peerId === selfId) { local.iso = d.iso; local.color = d.color; emit('countryConfirmed', d.iso) }

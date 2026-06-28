@@ -326,16 +326,21 @@ export function hostSetFloor(peerId) {
   if (!local.isHost) return
   S.floor = peerId; A.floor.send({ peerId }); emit('floor')
 }
-export function hostOpenVote(title, options, kind = 'generic', important = false) {
+export function hostOpenVote(title, options, kind = 'generic', important = false, council = false) {
   if (!local.isHost) return
   const voteId = 'v' + Date.now()
-  S.vote = { voteId, title, options, kind, important, open: true, casts: {}, tally: null, result: null }
-  A.voteOpen.send({ voteId, title, options, kind, important }); emit('vote')
+  S.vote = { voteId, title, options, kind, important, council, open: true, casts: {}, tally: null, result: null }
+  A.voteOpen.send({ voteId, title, options, kind, important, council }); emit('vote')
 }
-// 对当前起草决议发起实质性表决（Yes/No/Abstain）。important=重要问题需 ⅔
-export function hostOpenResolutionVote(important = false) {
+// 对当前起草决议发起实质性表决（Yes/No/Abstain）。important=重要问题需 ⅔；council=安理会表决(仅理事国投票，9/15+否决)
+export function hostOpenResolutionVote(important = false, council = false) {
   if (!local.isHost || !S.draft) return
-  hostOpenVote('Resolution: ' + S.draft.title, ['Yes', 'No', 'Abstain'], 'resolution', important)
+  hostOpenVote('Resolution: ' + S.draft.title, ['Yes', 'No', 'Abstain'], 'resolution', important, council)
+}
+
+// 安理会表决资格：常任(P5) 或 已选出的非常任理事国
+export function councilEligible(iso) {
+  return PERMANENT_MEMBERS.includes(iso) || (S.council || []).includes(iso)
 }
 export function castVote(choice) {
   if (!S.vote || !S.vote.open) return
@@ -353,7 +358,15 @@ export function hostCloseVote() {
   if (S.vote.kind === 'resolution' && S.draft) {
     const yes = tally['Yes'] || 0, no = tally['No'] || 0
     const vetoers = PERMANENT_MEMBERS.filter(iso => S.roster[iso] && S.vote.casts[iso] === 'No')
-    let passed = S.vote.important ? (yes > no && yes >= 2 * (yes + no) / 3) : (yes > no)
+    let passed
+    if (S.vote.council) {
+      // 安理会：15 国中需 9 票赞成（小型会议按 60% 折算），且无常任否决
+      const eligible = Object.keys(S.roster).filter(councilEligible).length
+      const threshold = eligible >= 15 ? 9 : Math.max(1, Math.ceil(eligible * 0.6))
+      passed = yes >= threshold && yes > no
+    } else {
+      passed = S.vote.important ? (yes > no && yes >= 2 * (yes + no) / 3) : (yes > no)
+    }
     const vetoed = vetoers.length > 0
     if (vetoed) passed = false
     result = vetoed ? 'VETOED' : (passed ? 'PASSED' : 'FAILED')
@@ -625,6 +638,7 @@ function applySeatSet(d) {
 function hostRecordVote(peerId, d) {
   if (!S.vote || !S.vote.open || d.voteId !== S.vote.voteId) return
   const p = S.players[peerId]; if (!p || !p.iso) return
+  if (S.vote.council && !councilEligible(p.iso)) return   // 安理会表决：非理事国无投票权
   S.vote.casts[p.iso] = d.choice
   emit('voteProgress', Object.keys(S.vote.casts).length)
 }

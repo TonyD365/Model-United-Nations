@@ -201,11 +201,13 @@ function enterHUD() {
   on('chairman', updateSched); on('snapshot', updateSched); updateSched()
   const pointBtn = el('button', 'ctl', '✋ Point')
   pointBtn.onclick = () => openPointsMenu()
+  const rulesBtn = el('button', 'ctl', '📖 Rules')
+  rulesBtn.onclick = () => openRules()
   const signBtn = el('button', 'ctl', '🖊️ Sign')
   signBtn.onclick = () => openDocument('resolution')
   const objBtn = el('button', 'ctl obj', '❗ Object')
   objBtn.onclick = () => { sfx.resume(); net.sendSplash('POINT', 'Point of Order!') }
-  bar.append(micBtn, viewBtn, standBtn, officeBtn, hallBtn, visitSel, boardBtn, schedBtn, pointBtn, signBtn, objBtn)
+  bar.append(micBtn, viewBtn, standBtn, officeBtn, hallBtn, visitSel, boardBtn, schedBtn, pointBtn, rulesBtn, signBtn, objBtn)
   dock.appendChild(bar)
   overlay.appendChild(dock)
 
@@ -226,8 +228,12 @@ function buildMyCountry() {
     const c = COUNTRY_BY_ISO[iso]; const me = S.players[local.selfId]; const stats = (me && me.stats) || {}
     const prof = fullProfile(iso)
     const p5 = PERMANENT_MEMBERS.includes(iso)
+    const isChair = S.chairman && S.chairman === local.selfId
+    const onCouncil = (S.council || []).includes(iso)
     let h = `<div class="mc-head">${fimg(iso)}<div><div class="mc-name">${c?.name || iso}</div><div class="mc-sub">${prof.capital || ''} · Dev ${devIndex(iso, stats)}</div></div></div>`
-    if (p5) h += `<div class="mc-veto">🛡️ Permanent Member — Veto power</div>`
+    if (isChair) h += `<div class="mc-role mc-chair">🪑 Chair / President — presides & rules on procedure</div>`
+    if (p5) h += `<div class="mc-veto">🛡️ Permanent Member (P5) — Security Council seat + veto</div>`
+    else if (onCouncil) h += `<div class="mc-role mc-council">🛡️ Security Council Member (non-permanent) — votes on SC matters</div>`
     h += '<div class="mc-stats">'
     for (const f of FIELDS) {
       const v = stats[f.key]; let delta = ''
@@ -246,6 +252,8 @@ function buildMyCountry() {
   on('snapshot', () => render(false))
   on('stats', pid => { if (pid === local.selfId) render(true) })
   on('result', () => render(true))
+  on('chairman', () => render(false))
+  on('election', () => render(false))
   render(false)
 }
 function profileHtml(iso) {
@@ -323,7 +331,12 @@ function buildVotingModal() {
     if (v && v.open && local.iso) {
       m.style.display = ''
       const voted = local.iso in (v.casts || {})
+      const eligible = !v.council || net.councilEligible(local.iso)
       m.innerHTML = `<div class="vp-title">🗳️ ${v.title}</div>`
+      if (!eligible) {
+        m.appendChild(el('div', 'vp-tally', '🛡️ Security Council vote — only Council members may vote. You may observe.'))
+        return
+      }
       // "Present & Voting" 不可弃权
       const noAbstain = S.rollCall[local.iso] === 'voting'
       const opts = el('div', 'vp-opts')
@@ -334,7 +347,8 @@ function buildVotingModal() {
         opts.appendChild(ob)
       }
       m.appendChild(opts)
-      if (v.kind === 'resolution') m.appendChild(el('div', 'vp-tally', (v.important ? '⅔ majority required · ' : 'Simple majority · ') + 'P5 may veto'))
+      if (v.council) m.appendChild(el('div', 'vp-tally', '🛡️ Security Council · 9 of 15 affirmative required · P5 may veto'))
+      else if (v.kind === 'resolution') m.appendChild(el('div', 'vp-tally', (v.important ? '⅔ majority required · ' : 'Simple majority · ') + 'P5 may veto'))
       if (noAbstain) m.appendChild(el('div', 'vp-tally', 'You are Present & Voting — abstention not allowed'))
     } else m.style.display = 'none'
   }
@@ -484,6 +498,50 @@ function openPointsMenu() {
   const wrap = el('div', 'pm-grid')
   for (const it of items) { const b = el('button', 'hp-btn', it.replace(/^\w+s?\b/, s => s[0].toUpperCase() + s.slice(1))); b.onclick = () => { net.raisePoint(it); m.remove() } ; wrap.appendChild(b) }
   card.appendChild(wrap)
+  const close = el('button', 'primary', 'Close'); close.onclick = () => m.remove(); card.appendChild(close)
+  m.appendChild(card); overlay.appendChild(m)
+}
+
+// ---------------- 规则与权利参考（真实模联角色权利）----------------
+function openRules() {
+  const m = el('div', 'modal'); m.style.pointerEvents = 'auto'
+  const card = el('div', 'modal-card rules-card')
+  const p5 = PERMANENT_MEMBERS.map(i => fimg(i) + ' ' + (COUNTRY_BY_ISO[i]?.name || i)).join(', ')
+  const sections = [
+    ['🪑 The Chair / President', [
+      'Presides over every session and keeps order (may bang the gavel to call “Order!”).',
+      'Opens and closes debate, recognizes speakers, and maintains the General Speakers’ List.',
+      'Rules on all Points of Order; rulings stand unless overturned by the body.',
+      'Puts motions and resolutions to a vote, announces results, and counts the tally.',
+      'May set / edit the timetable and choose the session agenda preset.',
+      'Suspends, recesses, or adjourns the meeting. The Chair does not debate or vote on the merits.',
+    ]],
+    ['🛡️ Security Council — Permanent Members (P5)', [
+      `${p5}.`,
+      'Hold a permanent seat on the Security Council.',
+      'Possess the right of veto: a single “No” from any P5 defeats a Security Council resolution.',
+      'An abstention or absence by a P5 member is NOT a veto.',
+    ]],
+    ['🛡️ Security Council — Non-Permanent Members', [
+      'Elected to the Council (here via the “Elect Security Council Members” preset).',
+      'Vote on Security Council matters but hold no veto.',
+      'A Security Council resolution passes with 9 affirmative votes of 15 and no P5 veto.',
+    ]],
+    ['🌐 Member States (General Assembly)', [
+      'One state, one vote — sovereign equality of all members.',
+      'Right to speak when recognized and to be added to the Speakers’ List.',
+      'Right to raise Points (Order, Personal Privilege, Parliamentary Inquiry) and a Right of Reply.',
+      'Right to move motions: moderated / unmoderated caucus, or to move into voting.',
+      'Right to sponsor, sign, and amend draft resolutions, and to vote Yes / No / Abstain.',
+      'A delegate marked “Present and Voting” at Roll Call may not abstain.',
+      'General Assembly resolutions pass by simple majority, or two-thirds for an important question.',
+    ]],
+  ]
+  let h = `<h3>📖 Rules of Procedure & Rights</h3>`
+  for (const [title, items] of sections) {
+    h += `<div class="rules-sec"><h4>${title}</h4><ul>${items.map(t => `<li>${t}</li>`).join('')}</ul></div>`
+  }
+  card.innerHTML = h
   const close = el('button', 'primary', 'Close'); close.onclick = () => m.remove(); card.appendChild(close)
   m.appendChild(card); overlay.appendChild(m)
 }
@@ -683,8 +741,10 @@ function buildHostPanel(container) {
   panel.appendChild(el('label', 'hp-label', 'Voting'))
   const impWrap = el('label', 'hp-cb'); const impCb = el('input'); impCb.type = 'checkbox'
   impWrap.append(impCb, document.createTextNode(' Important question (needs ⅔ + P5 veto applies)')); panel.appendChild(impWrap)
+  const scWrap = el('label', 'hp-cb'); const scCb = el('input'); scCb.type = 'checkbox'
+  scWrap.append(scCb, document.createTextNode(' Security Council vote (only council members vote · 9 of 15 + P5 veto)')); panel.appendChild(scWrap)
   const openRes = el('button', 'hp-btn', '🗳️ Open Vote on Draft')
-  openRes.onclick = () => { if (!S.draft) return toast('Set a draft first'); net.hostOpenResolutionVote(impCb.checked); toast('Resolution vote open') }
+  openRes.onclick = () => { if (!S.draft) return toast('Set a draft first'); net.hostOpenResolutionVote(impCb.checked, scCb.checked); toast('Resolution vote open') }
   const openAgenda = el('button', 'hp-btn', 'Vote: Adopt Agenda (Y/N)')
   openAgenda.onclick = () => { if (!S.agenda.topic) return toast('Set a topic first'); net.hostOpenVote('Adopt agenda: ' + S.agenda.topic, ['Yes', 'No', 'Abstain'], 'generic'); toast('Agenda vote open') }
   const closeVote = el('button', 'hp-btn', 'Close & Tally')

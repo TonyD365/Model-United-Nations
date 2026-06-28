@@ -231,5 +231,14 @@ textarea.hp-input { resize: vertical; font-family: inherit; }
 
 /* veto / permanent member */
 .mc-veto { background: rgba(201,162,39,0.18); border: 1px solid var(--gold); color: var(--gold); font-size: 11px; font-weight: 700; text-align: center; padding: 4px; border-radius: 8px; margin: 6px 0; }
+.mc-role { font-size: 11px; font-weight: 700; text-align: center; padding: 4px; border-radius: 8px; margin: 6px 0; }
+.mc-chair { background: rgba(110,180,255,0.16); border: 1px solid #6eb4ff; color: #bcd9ff; }
+.mc-council { background: rgba(120,200,150,0.16); border: 1px solid #56c08a; color: #bdebcf; }
+.rules-card { width: min(620px, 94vw); text-align: left; }
+.rules-card h3 { text-align: center; }
+.rules-sec { margin: 12px 0; }
+.rules-sec h4 { margin: 0 0 6px; color: var(--gold); font-size: 14px; }
+.rules-sec ul { margin: 0; padding-left: 20px; }
+.rules-sec li { font-size: 13px; line-height: 1.5; color: #dfe8e4; margin-bottom: 3px; }
 .rs-veto { color: #ff6b6b; font-weight: 700; margin: 6px 0; }
 .splash.purple .splash-text { color: #c77dff; }

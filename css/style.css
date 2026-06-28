@@ -222,3 +222,8 @@ textarea.hp-input { resize: vertical; font-family: inherit; }
   .dock { width: min(560px, 78vw); }
   .dlg-text { font-size: 14px; }
 }
+
+/* veto / permanent member */
+.mc-veto { background: rgba(201,162,39,0.18); border: 1px solid var(--gold); color: var(--gold); font-size: 11px; font-weight: 700; text-align: center; padding: 4px; border-radius: 8px; margin: 6px 0; }
+.rs-veto { color: #ff6b6b; font-weight: 700; margin: 6px 0; }
+.splash.purple .splash-text { color: #c77dff; }

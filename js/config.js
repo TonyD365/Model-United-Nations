@@ -74,6 +74,9 @@ export const SESSION_PRESETS = [
   { id: 'elect-council', label: '🛡️ Elect Security Council Members', kind: 'election', election: 'council', seats: 5 },
 ]
 
+// 安理会常任理事国（拥有否决权 veto）：中、法、俄、英、美
+export const PERMANENT_MEMBERS = ['CN', 'FR', 'RU', 'GB', 'US']
+
 export const PRESET_COUNTDOWN_MS = 60_000   // 开会前 1 分钟选预设，超时自动选
 export const AUTO_PHASE_MS = 30_000         // 自动流程每阶段时长
 

@@ -1,6 +1,6 @@
 // Trystero 联机封装：房间、所有 action、主机权威逻辑、主机选举/离开处理
 import { joinRoom, selfId } from 'trystero'
-import { APP_ID, MAX_PLAYERS, WORLD_HZ, POS_HZ, SESSION_PRESETS, PRESET_COUNTDOWN_MS, PHASE_DURATIONS, AUTO_PHASE_MS } from './config.js'
+import { APP_ID, MAX_PLAYERS, WORLD_HZ, POS_HZ, SESSION_PRESETS, PRESET_COUNTDOWN_MS, PHASE_DURATIONS, AUTO_PHASE_MS, PERMANENT_MEMBERS } from './config.js'
 import { S, local, emit, makeSnapshot, applySnapshot, isHost } from './state.js'
 import { COUNTRY_BY_ISO, colorOf } from './countries.js'
 import { freeBooth, refreshOfficeSigns } from './office.js'
@@ -321,16 +321,16 @@ export function hostSetFloor(peerId) {
   if (!local.isHost) return
   S.floor = peerId; A.floor.send({ peerId }); emit('floor')
 }
-export function hostOpenVote(title, options, kind = 'generic') {
+export function hostOpenVote(title, options, kind = 'generic', important = false) {
   if (!local.isHost) return
   const voteId = 'v' + Date.now()
-  S.vote = { voteId, title, options, kind, open: true, casts: {}, tally: null, result: null }
-  A.voteOpen.send({ voteId, title, options, kind }); emit('vote')
+  S.vote = { voteId, title, options, kind, important, open: true, casts: {}, tally: null, result: null }
+  A.voteOpen.send({ voteId, title, options, kind, important }); emit('vote')
 }
-// 对当前起草决议发起实质性表决（Yes/No/Abstain）
-export function hostOpenResolutionVote() {
+// 对当前起草决议发起实质性表决（Yes/No/Abstain）。important=重要问题需 ⅔
+export function hostOpenResolutionVote(important = false) {
   if (!local.isHost || !S.draft) return
-  hostOpenVote('Resolution: ' + S.draft.title, ['Yes', 'No', 'Abstain'], 'resolution')
+  hostOpenVote('Resolution: ' + S.draft.title, ['Yes', 'No', 'Abstain'], 'resolution', important)
 }
 export function castVote(choice) {
   if (!S.vote || !S.vote.open) return
@@ -344,13 +344,17 @@ export function hostCloseVote() {
   for (const iso in S.vote.casts) { const c = S.vote.casts[iso]; if (tally[c] != null) tally[c]++ }
   let result = null, best = -1
   for (const opt in tally) if (tally[opt] > best) { best = tally[opt]; result = opt }
-  // 实质性决议：Yes 多于 No 即通过，并对 scope 国家施加效果
+  // 实质性决议：门槛(简单多数/⅔) + 五常否决权
   if (S.vote.kind === 'resolution' && S.draft) {
-    const passed = (tally['Yes'] || 0) > (tally['No'] || 0)
-    result = passed ? 'PASSED' : 'FAILED'
+    const yes = tally['Yes'] || 0, no = tally['No'] || 0
+    const vetoers = PERMANENT_MEMBERS.filter(iso => S.roster[iso] && S.vote.casts[iso] === 'No')
+    let passed = S.vote.important ? (yes > no && yes >= 2 * (yes + no) / 3) : (yes > no)
+    const vetoed = vetoers.length > 0
+    if (vetoed) passed = false
+    result = vetoed ? 'VETOED' : (passed ? 'PASSED' : 'FAILED')
     S.vote.open = false; S.vote.tally = tally; S.vote.result = result
     A.voteClose.send({ voteId: S.vote.voteId, tally, result }); emit('vote')
-    finalizeResolution(passed, tally)
+    finalizeResolution(passed, tally, result, vetoers)
     return
   }
   S.vote.open = false; S.vote.tally = tally; S.vote.result = result
@@ -358,7 +362,7 @@ export function hostCloseVote() {
 }
 
 // 应用决议效果到 scope 国家，广播指标变更与结果
-function finalizeResolution(passed, tally) {
+function finalizeResolution(passed, tally, result, vetoers) {
   const draft = S.draft
   const changes = []
   if (passed && draft.effects && Object.keys(draft.effects).length) {
@@ -374,7 +378,7 @@ function finalizeResolution(passed, tally) {
       A.statsSet.send({ peerId: r.peerId, stats: p.stats })
     }
   }
-  S.lastResult = { title: draft.title, passed, tally, scope: draft.scope, effects: draft.effects, changes }
+  S.lastResult = { title: draft.title, passed, result: result || (passed ? 'PASSED' : 'FAILED'), vetoers: vetoers || [], important: !!(S.vote && S.vote.important), tally, scope: draft.scope, effects: draft.effects, changes }
   A.result.send(S.lastResult); emit('result')
 }
 

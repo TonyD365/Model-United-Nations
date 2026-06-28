@@ -1,6 +1,6 @@
 // 界面（全英文）：大厅入口 / 选国 / HUD / 国家数据 / 决议·投票 / 房主流程面板 / 移动端摇杆
 import { S, local, on, isHost } from './state.js'
-import { PHASES, TOPICS, VOTE_OPTIONS, MAX_PLAYERS, SEATED_PHASES, SESSION_PRESETS, SCHEDULE_TYPES } from './config.js'
+import { PHASES, TOPICS, VOTE_OPTIONS, MAX_PLAYERS, SEATED_PHASES, SESSION_PRESETS, SCHEDULE_TYPES, PERMANENT_MEMBERS } from './config.js'
 import { COUNTRIES, COUNTRY_BY_ISO } from './countries.js'
 import * as net from './net.js'
 import { setMicEnabled, hasVoice, micEnabled } from './voice.js'
@@ -145,7 +145,11 @@ function enterHUD() {
   on('chat', d => toast('💬 ' + (COUNTRY_BY_ISO[d.iso]?.name || d.name) + ': ' + d.text, 3600))
   on('splash', showSplash)
   on('present', d => openDocument(d.docId, true))
-  on('result', () => { const r = S.lastResult; if (r) showSplash({ kind: r.passed ? 'CARRIED' : 'FAILED', label: r.passed ? 'Motion Carried' : 'Motion Failed' }) })
+  on('result', () => {
+    const r = S.lastResult; if (!r) return
+    if (r.result === 'VETOED') showSplash({ kind: 'VETOED', label: 'Vetoed!' })
+    else showSplash({ kind: r.passed ? 'CARRIED' : 'FAILED', label: r.passed ? 'Motion Carried' : 'Motion Failed' })
+  })
 
   // 底部 dock：对话框 + 发言输入 + 控制条 竖直堆叠，互不重叠
   const dock = el('div', 'dock'); dock.style.pointerEvents = 'none'
@@ -203,7 +207,10 @@ function buildMyCountry() {
     card.style.display = ''
     const c = COUNTRY_BY_ISO[iso]; const me = S.players[local.selfId]; const stats = (me && me.stats) || {}
     const prof = fullProfile(iso)
-    let h = `<div class="mc-head">${fimg(iso)}<div><div class="mc-name">${c?.name || iso}</div><div class="mc-sub">${prof.capital || ''} · Dev ${devIndex(iso, stats)}</div></div></div><div class="mc-stats">`
+    const p5 = PERMANENT_MEMBERS.includes(iso)
+    let h = `<div class="mc-head">${fimg(iso)}<div><div class="mc-name">${c?.name || iso}</div><div class="mc-sub">${prof.capital || ''} · Dev ${devIndex(iso, stats)}</div></div></div>`
+    if (p5) h += `<div class="mc-veto">🛡️ Permanent Member — Veto power</div>`
+    h += '<div class="mc-stats">'
     for (const f of FIELDS) {
       const v = stats[f.key]; let delta = ''
       if (withDelta && prevSelfStats && prevSelfStats[f.key] != null && v != null) {
@@ -309,6 +316,7 @@ function buildVotingModal() {
         opts.appendChild(ob)
       }
       m.appendChild(opts)
+      if (v.kind === 'resolution') m.appendChild(el('div', 'vp-tally', (v.important ? '⅔ majority required · ' : 'Simple majority · ') + 'P5 may veto'))
       if (noAbstain) m.appendChild(el('div', 'vp-tally', 'You are Present & Voting — abstention not allowed'))
     } else m.style.display = 'none'
   }
@@ -321,8 +329,10 @@ function buildResultModal() {
     const r = S.lastResult; if (!r) return
     const m = el('div', 'modal'); m.style.pointerEvents = 'auto'
     const card = el('div', 'modal-card')
-    card.innerHTML = `<h3>${r.passed ? '✅ Resolution PASSED' : '❌ Resolution FAILED'}</h3>` +
-      `<div class="rs-sub">${r.title}</div>` +
+    const head = r.result === 'VETOED' ? '🚫 Resolution VETOED' : (r.passed ? '✅ Resolution PASSED' : '❌ Resolution FAILED')
+    card.innerHTML = `<h3>${head}</h3>` +
+      `<div class="rs-sub">${r.title}${r.important ? ' · ⅔ important question' : ''}</div>` +
+      (r.vetoers && r.vetoers.length ? `<div class="rs-veto">Vetoed by ${r.vetoers.map(i => fimg(i) + ' ' + (COUNTRY_BY_ISO[i]?.name || i)).join(', ')} (permanent member)</div>` : '') +
       `<div class="rs-tally">${Object.entries(r.tally || {}).map(([k, n]) => `${k}: <b>${n}</b>`).join(' · ')}</div>`
     if (r.passed && r.changes && r.changes.length) {
       card.innerHTML += `<div class="rs-eff">Indicator changes (${effectText(r.effects)})</div>`
@@ -653,8 +663,10 @@ function buildHostPanel(container) {
 
   // 表决
   panel.appendChild(el('label', 'hp-label', 'Voting'))
+  const impWrap = el('label', 'hp-cb'); const impCb = el('input'); impCb.type = 'checkbox'
+  impWrap.append(impCb, document.createTextNode(' Important question (needs ⅔ + P5 veto applies)')); panel.appendChild(impWrap)
   const openRes = el('button', 'hp-btn', '🗳️ Open Vote on Draft')
-  openRes.onclick = () => { if (!S.draft) return toast('Set a draft first'); net.hostOpenResolutionVote(); toast('Resolution vote open') }
+  openRes.onclick = () => { if (!S.draft) return toast('Set a draft first'); net.hostOpenResolutionVote(impCb.checked); toast('Resolution vote open') }
   const openAgenda = el('button', 'hp-btn', 'Vote: Adopt Agenda (Y/N)')
   openAgenda.onclick = () => { if (!S.agenda.topic) return toast('Set a topic first'); net.hostOpenVote('Adopt agenda: ' + S.agenda.topic, ['Yes', 'No', 'Abstain'], 'generic'); toast('Agenda vote open') }
   const closeVote = el('button', 'hp-btn', 'Close & Tally')

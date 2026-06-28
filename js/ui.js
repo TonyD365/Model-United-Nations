@@ -142,12 +142,14 @@ function enterHUD() {
   buildResultModal()
   buildPresetPanel()
   buildElectionPanel()
-  buildStage()
   on('chat', d => toast('💬 ' + (COUNTRY_BY_ISO[d.iso]?.name || d.name) + ': ' + d.text, 3600))
   on('splash', showSplash)
   on('present', d => openDocument(d.docId, true))
   on('result', () => { const r = S.lastResult; if (r) showSplash({ kind: r.passed ? 'CARRIED' : 'FAILED', label: r.passed ? 'Motion Carried' : 'Motion Failed' }) })
 
+  // 底部 dock：对话框 + 发言输入 + 控制条 竖直堆叠，互不重叠
+  const dock = el('div', 'dock'); dock.style.pointerEvents = 'none'
+  buildStage(dock)
   // 底部控制条
   const bar = el('div', 'hud-bar'); bar.style.pointerEvents = 'auto'
   const micBtn = el('button', 'ctl', '🎙️ Mic')
@@ -182,7 +184,8 @@ function enterHUD() {
   const objBtn = el('button', 'ctl obj', '❗ Object')
   objBtn.onclick = () => { sfx.resume(); net.sendSplash('POINT', 'Point of Order!') }
   bar.append(micBtn, viewBtn, standBtn, officeBtn, hallBtn, visitSel, boardBtn, schedBtn, pointBtn, signBtn, objBtn)
-  overlay.appendChild(bar)
+  dock.appendChild(bar)
+  overlay.appendChild(dock)
 
   if (isMobile) buildMobileControls()
   if (isHost()) buildHostPanel()
@@ -458,8 +461,8 @@ function openPointsMenu() {
 }
 
 // ---------------- 庭审式发言台（底部对话框 + 发言输入）----------------
-function buildStage() {
-  const stage = el('div', 'stage'); stage.style.pointerEvents = 'auto'; overlay.appendChild(stage)
+function buildStage(parent) {
+  const stage = el('div', 'stage'); stage.style.pointerEvents = 'auto'; (parent || overlay).appendChild(stage)
   const dlg = el('div', 'dialogue'); dlg.style.display = 'none'
   const dname = el('div', 'dlg-name'); const dtext = el('div', 'dlg-text')
   dlg.append(dname, dtext); stage.appendChild(dlg)

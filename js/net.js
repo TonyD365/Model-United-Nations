@@ -170,8 +170,8 @@ function wire() {
   A.voteClose.on((d) => { if (S.vote) { S.vote.open = false; S.vote.tally = d.tally; S.vote.result = d.result }; emit('vote') })
 
   // ---- 签字 ----
-  A.signDoc.on((d, peerId) => { if (local.isHost) hostSign(peerId, d.docId) })
-  A.signSet.on((d) => { S.signed[d.docId] = d.isos; emit('signed', d.docId) })
+  A.signDoc.on((d, peerId) => { if (local.isHost) hostSign(peerId, d.docId, d.approve, d.name) })
+  A.signSet.on((d) => { S.signed[d.docId] = d.entries; emit('signed', d.docId) })
 
   // ---- 语音区 / 发言权 / 麦克风 ----
   A.zone.on((d, peerId) => { const p = S.players[peerId]; if (p) p.zone = d.zone; emit('zone', peerId) })
@@ -420,9 +420,9 @@ function hostDraftJoin(peerId, role) {
   if (!S.draft[role].includes(p.iso)) S.draft[role].push(p.iso)
   A.draft.send({ draft: S.draft }); emit('draft')
 }
-export function signDocument(docId = 'resolution') {
-  if (local.isHost) hostSign(selfId, docId)
-  else A.signDoc.send({ docId }, S.hostId)
+export function signDocument(docId = 'resolution', approve = true, name = '') {
+  if (local.isHost) hostSign(selfId, docId, approve, name)
+  else A.signDoc.send({ docId, approve, name }, S.hostId)
 }
 export function sendChat(text) {
   const d = { name: local.name, iso: local.iso, text }
@@ -598,11 +598,11 @@ function hostRecordVote(peerId, d) {
   emit('voteProgress', Object.keys(S.vote.casts).length)
 }
 
-function hostSign(peerId, docId) {
+function hostSign(peerId, docId, approve, name) {
   const p = S.players[peerId]; if (!p || !p.iso) return
-  S.signed[docId] ||= []
-  if (!S.signed[docId].includes(p.iso)) S.signed[docId].push(p.iso)
-  A.signSet.send({ docId, isos: S.signed[docId] })
+  S.signed[docId] = (S.signed[docId] || []).filter(e => e.iso !== p.iso)
+  S.signed[docId].push({ iso: p.iso, name: (name || p.name || '').slice(0, 24), approve: !!approve })
+  A.signSet.send({ docId, entries: S.signed[docId] })
   emit('signed', docId)
 }
 

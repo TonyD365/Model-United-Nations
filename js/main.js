@@ -10,7 +10,7 @@ import { loadCharacter, spawnAvatar, removeAvatar, setAvatarTarget, placeAvatar,
 import { initVoice, updateVoice, removeVoicePeer } from './voice.js'
 import * as net from './net.js'
 import { pickSeat, seatById, setSeatHighlight } from './seats.js'
-import { initUI, toast } from './ui.js'
+import { initUI, toast, openDocument } from './ui.js'
 
 // ---- 场景 ----
 buildHall()
@@ -125,9 +125,9 @@ function setupInteract() {
   const canvas = document.getElementById('app')
   canvas.addEventListener('click', e => {
     if (e.button !== 0) return
-    // 1) 签字文件
+    // 1) 签字文件 → 打开文档签字弹窗
     const doc = pick(DOCUMENTS, e.clientX, e.clientY)
-    if (doc) { net.signDocument(doc.userData.signDoc); toast('You signed: ' + doc.userData.signDoc); return }
+    if (doc) { openDocument(doc.userData.signDoc); return }
     // 2) 座位
     const seatId = pickSeat(e.clientX, e.clientY)
     if (!seatId) return

@@ -172,7 +172,9 @@ function enterHUD() {
   on('chairman', updateSched); on('snapshot', updateSched); updateSched()
   const pointBtn = el('button', 'ctl', '✋ Point')
   pointBtn.onclick = () => openPointsMenu()
-  bar.append(micBtn, viewBtn, standBtn, officeBtn, hallBtn, visitSel, boardBtn, schedBtn, pointBtn)
+  const signBtn = el('button', 'ctl', '🖊️ Sign')
+  signBtn.onclick = () => openDocument('resolution')
+  bar.append(micBtn, viewBtn, standBtn, officeBtn, hallBtn, visitSel, boardBtn, schedBtn, pointBtn, signBtn)
   overlay.appendChild(bar)
 
   if (isMobile) buildMobileControls()
@@ -445,6 +447,33 @@ function openPointsMenu() {
   for (const it of items) { const b = el('button', 'hp-btn', it.replace(/^\w+s?\b/, s => s[0].toUpperCase() + s.slice(1))); b.onclick = () => { net.raisePoint(it); m.remove() } ; wrap.appendChild(b) }
   card.appendChild(wrap)
   const close = el('button', 'primary', 'Close'); close.onclick = () => m.remove(); card.appendChild(close)
+  m.appendChild(card); overlay.appendChild(m)
+}
+
+// ---------------- 签字文档（打开→弹文档→签名→Approve/Reject）----------------
+export function openDocument(docId = 'resolution') {
+  const m = el('div', 'modal'); m.style.pointerEvents = 'auto'
+  const card = el('div', 'modal-card doc-card')
+  const d = S.draft
+  const title = d ? d.title : (docId === 'treaty' ? 'International Treaty' : 'Conference Document')
+  const clauses = d ? (d.clauses || []) : ['(No active draft resolution — this is a blank conference document.)']
+  let h = `<div class="doc-head">📜 ${title}</div>`
+  if (d && d.effects) h += `<div class="doc-effect">${effectText(d.effects)} · applies to ${d.scope === 'all' ? 'all members' : 'sponsors & signatories'}</div>`
+  h += `<ol class="doc-body">${clauses.map(c => `<li>${c}</li>`).join('')}</ol>`
+  card.innerHTML = h
+  card.appendChild(el('div', 'sig-label', '✍️ Sign here'))
+  const sig = el('input', 'sig-input'); sig.placeholder = 'Write your name'; sig.value = local.name || ''
+  card.appendChild(sig)
+  const sl = el('div', 'sig-list')
+  const renderSigs = () => { const arr = S.signed[docId] || []; sl.innerHTML = arr.length ? arr.map(e => `${fimg(e.iso)} <b>${e.name}</b> — ${e.approve ? '✅ Approved' : '❌ Rejected'}`).join('<br>') : '<span class="hp-mini">No signatures yet</span>' }
+  renderSigs(); card.appendChild(sl)
+  const row = el('div', 'doc-actions')
+  const ap = el('button', 'doc-btn ok', '✅ Approve & Sign')
+  ap.onclick = () => { if (!sig.value.trim()) return toast('Write your name to sign'); net.signDocument(docId, true, sig.value.trim()); toast('Approved & signed'); m.remove() }
+  const rj = el('button', 'doc-btn no', '❌ Reject')
+  rj.onclick = () => { net.signDocument(docId, false, sig.value.trim() || local.name); toast('Rejected'); m.remove() }
+  row.append(ap, rj); card.appendChild(row)
+  const cl = el('button', 'hp-btn', 'Close'); cl.onclick = () => m.remove(); card.appendChild(cl)
   m.appendChild(card); overlay.appendChild(m)
 }
 

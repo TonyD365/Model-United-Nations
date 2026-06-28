@@ -104,14 +104,11 @@ export function buildOffices() {
       g.add(paper); DOCUMENTS.push(paper)
     })
 
-    // 墙上国旗（真实 SVG 贴图的平面，贴在后墙朝向房间 -X）+ 国名牌
+    // 墙上国旗（真实 SVG 贴图的平面，贴在后墙朝向房间 -X）
     const flag = new THREE.Mesh(new THREE.PlaneGeometry(2.7, 1.8),
       new THREE.MeshBasicMaterial({ color: 0x1a1f1d }))
-    flag.position.set(c.x + RW / 2 - 0.12, 2.15, c.z); flag.rotation.y = -Math.PI / 2
+    flag.position.set(c.x + RW / 2 - 0.12, 2.35, c.z); flag.rotation.y = -Math.PI / 2
     scene.add(flag); flagSprites[i] = flag
-    const nameTag = makeTextSprite('', '#0d1412')
-    nameTag.position.set(c.x + RW / 2 - 0.25, 0.95, c.z); nameTag.scale.set(2.4, 1.2, 1)
-    scene.add(nameTag); nameSprites[i] = nameTag
   }
 
   scene.add(root)
@@ -182,7 +179,6 @@ export function refreshOfficeSigns(roster) {
       else { plane.material.map = null; plane.material.color.set(0x1a1f1d) }
       plane.material.needsUpdate = true
     }
-    if (nameSprites[i]) setNameTag(nameSprites[i], iso ? (COUNTRY_BY_ISO[iso]?.name || iso) : '')
   }
 }
 

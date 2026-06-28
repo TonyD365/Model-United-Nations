@@ -58,10 +58,11 @@ input, select, .search {
 .ctl:hover { background: rgba(201,162,39,0.2); }
 .ctl.on { background: #b5302f; }
 
-.vote-panel { position: absolute; bottom: 84px; left: 50%; transform: translateX(-50%); background: var(--panel); padding: 16px 18px; border-radius: 14px; border: 1px solid var(--gold); min-width: 280px; text-align: center; }
-.vp-title { font-weight: 700; margin-bottom: 10px; }
-.vp-opts { display: flex; gap: 8px; justify-content: center; }
-.vp-opt { padding: 10px 16px; border-radius: 10px; background: var(--gold); color: #1a1405; font-weight: 700; }
+.vote-panel { position: absolute; top: 38%; left: 50%; transform: translate(-50%, -50%); z-index: 46; background: var(--panel); padding: 18px 22px; border-radius: 16px; border: 2px solid var(--gold); min-width: 300px; text-align: center; box-shadow: 0 16px 50px rgba(0,0,0,0.5); }
+.vp-title { font-weight: 700; margin-bottom: 12px; font-size: 16px; }
+.vp-opts { display: flex; gap: 10px; justify-content: center; }
+.vp-opt { padding: 12px 20px; border-radius: 10px; background: var(--gold); color: #1a1405; font-weight: 700; font-size: 15px; }
+.vp-opt:disabled { opacity: 0.5; }
 .vp-tally { margin-top: 8px; font-size: 13px; color: #b9c6c0; }
 
 /* ---------- host panel ---------- */

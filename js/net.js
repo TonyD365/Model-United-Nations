@@ -477,5 +477,6 @@ function nameOf(peerId) {
   return null
 }
 function spawnPoint() {
-  return { x: (Math.random() - 0.5) * 8, z: 16 + (Math.random() - 0.5) * 4 }
+  // 中庭开阔处（主席台前、座位环内侧），避免生成在座位堆里
+  return { x: (Math.random() - 0.5) * 6, z: 1 + Math.random() * 4 }
 }

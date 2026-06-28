@@ -84,7 +84,7 @@ export function buildHall() {
       const marker = seatMarker('s' + idx, seatPos, false)
       root.add(marker)
       SEATS.push({ id: 's' + idx, position: seatPos.clone(), ry, rostrum: false, mesh: marker })
-      COLLIDERS.push({ x: dx, z: dz, r: 1.0 })   // 桌子挡路
+      // 不给每张桌子加碰撞（否则代表被困在座位环里走不动；落座靠点击座位）
       idx++
     }
   }
@@ -100,7 +100,8 @@ export function buildHall() {
   }
   const lectern = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.2, 0.8), mat(palette.gold, { metalness: 0.4, roughness: 0.4 }))
   lectern.position.set(0, 3.3, -10.4); root.add(lectern)
-  COLLIDERS.push({ x: 0, z: -12, r: 9 })   // 主席台整体
+  // 仅给主席台台体一个紧贴的方形碰撞（别用大圆，否则把整片中庭挡死）
+  COLLIDERS.push({ minX: -8.2, maxX: 8.2, minZ: -16, maxZ: -9.8 })
 
   // 主席台高位（主席 + 2 发言席），面向 +Z（朝代表）
   const rostrumY = 2.7, rostrumZ = -13.6

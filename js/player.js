@@ -47,10 +47,12 @@ export function setSeated(seat) {
 }
 export function standUp() {
   if (seated) {
-    pos.copy(seated.position)
-    pos.z += 1.4
+    const wasRostrum = seated.position.z < -8
+    if (wasRostrum) pos.set(0, 0, -6)   // 主席台起身 → 走到台前开阔处，避免卡住
+    else { pos.copy(seated.position); pos.z += 1.6 }
     seated = null
     if (self) self.seated = false
+    resolveCollisions()
   }
 }
 export function isSeated() { return !!seated }
@@ -149,6 +151,7 @@ export function updatePlayer(dt) {
   if (self) {
     self.group.position.copy(pos)
     self.anim = moving ? 1 : 0
+    self.group.visible = thirdPerson   // 第一人称隐藏自身模型，避免相机穿进头部
   }
 
   // 相机

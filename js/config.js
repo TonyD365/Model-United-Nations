@@ -31,24 +31,29 @@ export const palette = {
   emblem: 0xcfe8df,
 }
 
-// 议程阶段（房主推进的状态机）— 界面英文
+// 真实模联议事流程（固定序列，主席推进）— 界面英文
 export const PHASES = [
-  { id: 'lobby',      label: 'Lobby / Pick Country', icon: '🌐' },
-  { id: 'office',     label: 'Country Office · Sign', icon: '🖊️' },
-  { id: 'session',    label: 'Enter Session · Be Seated', icon: '🪑' },
-  { id: 'debate',     label: 'Debate / Speeches', icon: '🎤' },
-  { id: 'vote',       label: 'Voting', icon: '🗳️' },
-  { id: 'resolution', label: 'Tally / Resolution', icon: '📜' },
+  { id: 'rollcall',     label: 'Roll Call', icon: '📋' },
+  { id: 'agenda',       label: 'Set the Agenda', icon: '🗂️' },
+  { id: 'gsl',          label: "General Speakers' List", icon: '🎤' },
+  { id: 'modcaucus',    label: 'Moderated Caucus', icon: '💬' },
+  { id: 'unmodcaucus',  label: 'Unmoderated Caucus', icon: '🚶' },
+  { id: 'draft',        label: 'Draft Resolutions', icon: '📝' },
+  { id: 'amend',        label: 'Amendments', icon: '✏️' },
+  { id: 'voting',       label: 'Voting Procedure', icon: '🗳️' },
+  { id: 'adjourn',      label: 'Adjournment', icon: '🔚' },
 ]
+// 进入会议落座的阶段（座位可点）
+export const SEATED_PHASES = ['gsl', 'modcaucus', 'draft', 'amend', 'voting']
 
-// 预设议题（房主可选或自定义）
+// 议程可选议题（Set the Agenda 阶段，主席动议+表决选定）
 export const TOPICS = [
-  'Election of Non-Permanent Security Council Members',
   'Climate Change Resolution',
   'Humanitarian Aid Appropriation',
   'Peacekeeping Deployment Authorization',
-  'Non-Proliferation Treaty Review',
+  'Nuclear Non-Proliferation',
   'Refugee Resettlement Framework',
+  'Global Public Health',
 ]
 
 // 投票选项预设

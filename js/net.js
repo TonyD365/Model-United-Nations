@@ -4,6 +4,7 @@ import { APP_ID, MAX_PLAYERS, WORLD_HZ, POS_HZ } from './config.js'
 import { S, local, emit, makeSnapshot, applySnapshot, isHost } from './state.js'
 import { COUNTRY_BY_ISO, colorOf } from './countries.js'
 import { freeBooth, refreshOfficeSigns } from './office.js'
+import { initStats, applyEffects } from './stats.js'
 
 let room = null
 const A = {}                 // action 名 -> { send, on }
@@ -61,7 +62,8 @@ function open(roomCode, onError) {
 function defActions() {
   ;['hello','snap','claimCty','ctySet','ctyRej','pos','world','seatReq','seatSet','seatRel',
     'rostReq','rostDec','phase','start','voteOpen','voteCast','voteClose',
-    'signDoc','signSet','zone','floor','mic','chat','pLeft','chair'].forEach(defAction)
+    'signDoc','signSet','zone','floor','mic','chat','pLeft','chair',
+    'roll','gsl','draft','dSponsor','dSign','statsSet','result'].forEach(defAction)
 }
 
 function wire() {
@@ -118,6 +120,21 @@ function wire() {
   A.seatSet.on((d) => { applySeatSet(d) })
   A.rostDec.on((d) => { applySeatSet(d); emit('rostrumDecision', d) })
   A.chair.on((d) => { S.chairman = d.peerId; emit('chairman') })
+
+  // —— 真实流程 ——
+  A.roll.on((d, peerId) => {
+    if (d.rollCall) { S.rollCall = d.rollCall; emit('roll') }        // 主机→全体：全表
+    else if (local.isHost && d.status) hostRoll(peerId, d.status)    // 代表→主机：上报
+  })
+  A.gsl.on((d, peerId) => {
+    if (d.gsl) { S.gsl = d.gsl; emit('gsl') }                        // 主机→全体
+    else if (local.isHost && d.join) hostGslAdd(peerId)              // 代表→主机：入队
+  })
+  A.draft.on((d) => { S.draft = d.draft; emit('draft') })
+  A.dSponsor.on((d, peerId) => { if (local.isHost) hostDraftJoin(peerId, 'sponsors') })
+  A.dSign.on((d, peerId) => { if (local.isHost) hostDraftJoin(peerId, 'signatories') })
+  A.statsSet.on((d) => { const p = S.players[d.peerId]; if (p) p.stats = d.stats; emit('stats', d.peerId) })
+  A.result.on((d) => { S.lastResult = d; emit('result') })
 
   // ---- 议程 / 议题 ----
   A.phase.on((d) => { S.agenda = { phase: d.phase, topic: d.topic }; emit('agenda') })
@@ -242,11 +259,16 @@ export function hostSetFloor(peerId) {
   if (!local.isHost) return
   S.floor = peerId; A.floor.send({ peerId }); emit('floor')
 }
-export function hostOpenVote(title, options) {
+export function hostOpenVote(title, options, kind = 'generic') {
   if (!local.isHost) return
   const voteId = 'v' + Date.now()
-  S.vote = { voteId, title, options, open: true, casts: {}, tally: null, result: null }
-  A.voteOpen.send({ voteId, title, options }); emit('vote')
+  S.vote = { voteId, title, options, kind, open: true, casts: {}, tally: null, result: null }
+  A.voteOpen.send({ voteId, title, options, kind }); emit('vote')
+}
+// 对当前起草决议发起实质性表决（Yes/No/Abstain）
+export function hostOpenResolutionVote() {
+  if (!local.isHost || !S.draft) return
+  hostOpenVote('Resolution: ' + S.draft.title, ['Yes', 'No', 'Abstain'], 'resolution')
 }
 export function castVote(choice) {
   if (!S.vote || !S.vote.open) return
@@ -260,8 +282,86 @@ export function hostCloseVote() {
   for (const iso in S.vote.casts) { const c = S.vote.casts[iso]; if (tally[c] != null) tally[c]++ }
   let result = null, best = -1
   for (const opt in tally) if (tally[opt] > best) { best = tally[opt]; result = opt }
+  // 实质性决议：Yes 多于 No 即通过，并对 scope 国家施加效果
+  if (S.vote.kind === 'resolution' && S.draft) {
+    const passed = (tally['Yes'] || 0) > (tally['No'] || 0)
+    result = passed ? 'PASSED' : 'FAILED'
+    S.vote.open = false; S.vote.tally = tally; S.vote.result = result
+    A.voteClose.send({ voteId: S.vote.voteId, tally, result }); emit('vote')
+    finalizeResolution(passed, tally)
+    return
+  }
   S.vote.open = false; S.vote.tally = tally; S.vote.result = result
   A.voteClose.send({ voteId: S.vote.voteId, tally, result }); emit('vote')
+}
+
+// 应用决议效果到 scope 国家，广播指标变更与结果
+function finalizeResolution(passed, tally) {
+  const draft = S.draft
+  const changes = []
+  if (passed && draft.effects && Object.keys(draft.effects).length) {
+    let isos
+    if (draft.scope === 'all') isos = Object.keys(S.roster)
+    else isos = [...new Set([...(draft.sponsors || []), ...(draft.signatories || [])])]
+    for (const iso of isos) {
+      const r = S.roster[iso]; if (!r) continue
+      const p = S.players[r.peerId]; if (!p || !p.stats) continue
+      const before = { ...p.stats }
+      applyEffects(p.stats, draft.effects)
+      changes.push({ iso, name: r.name, before, after: { ...p.stats } })
+      A.statsSet.send({ peerId: r.peerId, stats: p.stats })
+    }
+  }
+  S.lastResult = { title: draft.title, passed, tally, scope: draft.scope, effects: draft.effects, changes }
+  A.result.send(S.lastResult); emit('result')
+}
+
+// —— Roll Call / GSL / Draft 主机逻辑 ——
+function hostRoll(peerId, status) {
+  const p = S.players[peerId]; if (!p || !p.iso) return
+  S.rollCall[p.iso] = status
+  A.roll.send({ rollCall: S.rollCall }) // 用同名 action 广播全表
+  emit('roll')
+}
+export function markRollCall(status) {
+  if (local.isHost) hostRoll(selfId, status)
+  else A.roll.send({ status }, S.hostId)
+}
+export function requestGsl() {
+  if (local.isHost) hostGslAdd(selfId)
+  else A.gsl.send({ join: true }, S.hostId)
+}
+function hostGslAdd(peerId) {
+  if (!S.gsl.includes(peerId)) S.gsl.push(peerId)
+  A.gsl.send({ gsl: S.gsl }); emit('gsl')
+}
+export function hostGslNext() {
+  if (!local.isHost) return
+  const next = S.gsl.shift() || null
+  if (next) hostSetFloor(next)
+  A.gsl.send({ gsl: S.gsl }); emit('gsl')
+}
+export function hostSetDraft(draft) {
+  if (!local.isHost) return
+  S.draft = { sponsors: [], signatories: [], ...draft }
+  A.draft.send({ draft: S.draft }); emit('draft')
+}
+export function sponsorDraft() {
+  if (local.isHost) hostDraftJoin(selfId, 'sponsors')
+  else A.dSponsor.send({}, S.hostId)
+}
+export function signDraft() {
+  if (local.isHost) hostDraftJoin(selfId, 'signatories')
+  else A.dSign.send({}, S.hostId)
+}
+function hostDraftJoin(peerId, role) {
+  if (!S.draft) return
+  const p = S.players[peerId]; if (!p || !p.iso) return
+  const other = role === 'sponsors' ? 'signatories' : 'sponsors'
+  S.draft[other] = (S.draft[other] || []).filter(i => i !== p.iso)
+  S.draft[role] = S.draft[role] || []
+  if (!S.draft[role].includes(p.iso)) S.draft[role].push(p.iso)
+  A.draft.send({ draft: S.draft }); emit('draft')
 }
 export function signDocument(docId = 'resolution') {
   if (local.isHost) hostSign(selfId, docId)
@@ -288,7 +388,7 @@ function hostAssignCountry(peerId, iso) {
   const booth = freeBooth(S.roster)
   S.roster[iso] = { peerId, name, color, booth }
   const spawn = spawnPoint()
-  S.players[peerId] = { id: peerId, name, iso, color, x: spawn.x, y: 0, z: spawn.z, ry: 0, anim: 0, zone: 'hall', seat: null }
+  S.players[peerId] = { id: peerId, name, iso, color, x: spawn.x, y: 0, z: spawn.z, ry: 0, anim: 0, zone: 'hall', seat: null, stats: initStats(iso) }
   delete pending[peerId]
   const payload = { iso, peerId, name, color, booth, ok: true }
   A.ctySet.send(payload)
@@ -300,7 +400,7 @@ function applyCountrySet(d) {
   S.roster[d.iso] = { peerId: d.peerId, name: d.name, color: d.color, booth: d.booth }
   if (!S.players[d.peerId]) {
     const spawn = spawnPoint()
-    S.players[d.peerId] = { id: d.peerId, name: d.name, iso: d.iso, color: d.color, x: spawn.x, y: 0, z: spawn.z, ry: 0, anim: 0, zone: 'hall', seat: null }
+    S.players[d.peerId] = { id: d.peerId, name: d.name, iso: d.iso, color: d.color, x: spawn.x, y: 0, z: spawn.z, ry: 0, anim: 0, zone: 'hall', seat: null, stats: initStats(d.iso) }
   } else {
     S.players[d.peerId].iso = d.iso
     S.players[d.peerId].color = d.color
@@ -361,6 +461,8 @@ function hostRemovePlayer(peerId) {
   for (const sid in S.seats) if (S.seats[sid] === peerId) S.seats[sid] = null
   if (S.floor === peerId) S.floor = null
   if (S.chairman === peerId) { S.chairman = null; A.chair.send({ peerId: null }) }
+  const gi = S.gsl.indexOf(peerId); if (gi >= 0) { S.gsl.splice(gi, 1); A.gsl.send({ gsl: S.gsl }) }
+  if (iso) { delete S.rollCall[iso]; if (S.draft) { S.draft.sponsors = (S.draft.sponsors || []).filter(i => i !== iso); S.draft.signatories = (S.draft.signatories || []).filter(i => i !== iso) } }
   delete S.players[peerId]
   delete pending[peerId]
   refreshOfficeSigns(S.roster)

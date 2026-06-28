@@ -3,7 +3,7 @@ import * as THREE from 'three'
 import { camera, overviewCamera, setActiveCamera, getActiveCamera, onTick, startLoop, raycaster } from './scene.js'
 import { buildHall, ROSTRUM_SEAT_IDS, COLLIDERS } from './hall.js'
 import { buildOffices, zoneAt, DOCUMENTS } from './office.js'
-import { VOICE_UPDATE_HZ } from './config.js'
+import { VOICE_UPDATE_HZ, SEATED_PHASES } from './config.js'
 import { S, local, on } from './state.js'
 import { initPlayer, updatePlayer, position, setSeated, standUp, setColliders } from './player.js'
 import { loadCharacter, spawnAvatar, removeAvatar, setAvatarTarget, placeAvatar, updateAvatars, setAvatarName, setAvatarSeated, getAvatar } from './avatars.js'
@@ -98,8 +98,7 @@ on('seats', d => {
 
 // ---- 阶段 → 座位高亮 ----
 function refreshSeatHi() {
-  const p = S.agenda.phase
-  setSeatHighlight(p === 'session' || p === 'debate', S.seats, S.rostrumSeatIds)
+  setSeatHighlight(SEATED_PHASES.includes(S.agenda.phase), S.seats, S.rostrumSeatIds)
 }
 on('agenda', refreshSeatHi); on('snapshot', refreshSeatHi)
 
@@ -124,7 +123,7 @@ function setupInteract() {
     const seat = seatById(seatId)
     const office = seat && seat.office
     const phase = S.agenda.phase
-    if (!office && phase !== 'session' && phase !== 'debate') return toast('Seats open during Session/Debate')
+    if (!office && !SEATED_PHASES.includes(phase)) return toast('Seats open once the session is in progress')
     if (S.seats[seatId]) return toast('Seat taken')
     net.requestSeat(seatId, S.rostrumSeatIds.includes(seatId))
     toast(S.rostrumSeatIds.includes(seatId) ? 'Requested rostrum seat (chair approval)' : 'Taking seat…')

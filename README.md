@@ -21,7 +21,10 @@ player's browser acts as the authoritative **host**.
 - **Procedural GA hall** — solid tiered delegate desks with chairs facing the rostrum, restricted top rostrum seats, UN-emblem backdrop, gold dome. Click a seat during Session/Debate to sit; **Stand Up** to leave.
 - **Country offices (separate rooms outside the hall)** — each enclosed office has a wall-mounted flag, a desk with a luxury chair, two guest chairs, and signable documents. Walk in or **Visit** another delegate's office.
 - **Collision** — desks, walls and the rostrum block movement; the third-person camera pulls in to avoid clipping through walls.
-- **Chair controls** — start session, advance the agenda phases, set the topic, open/close votes with tally, approve rostrum seats, grant the floor, and **designate a Chairman** (works in Dashboard-only mode).
+- **Real Model UN procedure** — fixed flow the chair drives: Roll Call → Set the Agenda → General Speakers' List → Moderated/Unmoderated Caucus → Draft Resolutions → Amendments → Voting → Adjournment. Delegates mark attendance, raise hands for the speakers' list, sponsor & sign draft resolutions, and vote Yes/No/Abstain.
+- **Real country data & treaty effects** — every country carries real-world indicators (population, GDP, GDP/capita, CO₂ emissions, life expectancy, plus an expandable profile: area, density, region, capital, currency, languages…). When a resolution passes, its effects change the indicators of its signatories (or all members), shown as a before→after results panel and live ▲▼ deltas on the My Country card. Includes a sortable **World Standings** leaderboard.
+- **Resolutions** — preset library per topic, or the chair authors a **custom resolution** and sets its own indicator effects.
+- **Chair controls** — start session, advance the procedure, set the topic, run roll call / speakers' list, set drafts, open/close votes with tally, approve rostrum seats, grant the floor, and **designate a Chairman** (works in Dashboard-only mode).
 - **Voice chat** — proximity-based in the hall, room-based inside offices, and hall-wide when the chair grants you the floor.
 
 ## Run locally
@@ -49,7 +52,8 @@ peer IDs: create a room in one, join with the code in the other.
 
 ## Tech / structure
 
-- No build step — `index.html` + ES modules via importmap. Three.js (`0.185.0`) and Trystero (`0.25.2`, Nostr strategy) are **vendored** as browser ESM bundles under `vendor/`, so the site is fully self-contained with no third-party CDN dependency at runtime.
+- No build step to run — `index.html` + ES modules via importmap. Three.js (`0.185.0`) and Trystero (`0.25.2`, Nostr strategy) are **vendored** as browser ESM bundles under `vendor/`, so the site is fully self-contained with no third-party CDN dependency at runtime.
+- Country data & flags are pre-generated. To refresh them, run `node tools/build-data.mjs` — it fetches real indicators (OWID, mledoze, samayo) and 193 flag SVGs (lipis/flag-icons) from GitHub and writes `js/country-data.js` + `assets/flags/*.svg` (both committed).
 - `js/net.js` & `js/state.js` hold all networking and authoritative state.
 - `js/hall.js`, `js/office.js` build the world; `js/player.js`, `js/avatars.js` handle movement; `js/voice.js` does spatial audio; `js/ui.js` the interface.
 

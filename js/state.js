@@ -20,11 +20,16 @@ export const S = {
   players: {},               // peerId -> { id,name,iso,color,x,y,z,ry,anim,zone,seat }
   seats: {},                 // seatId -> peerId | null
   rostrumSeatIds: [],        // 主席台受限高位 seatId
-  agenda: { phase: 'lobby', topic: '' },
+  agenda: { phase: 'rollcall', topic: '' },
   vote: null,                // { voteId,title,options,open,casts:{iso:choice},tally,result }
   signed: {},                // docId -> [iso]
   floor: null,               // 拥有大厅广播发言权的 peerId
   chairman: null,            // 被指定为主席的 peerId
+  // —— 真实模联流程状态 ——
+  rollCall: {},              // iso -> 'present' | 'voting'(present & voting)
+  gsl: [],                   // General Speakers' List：排队的 peerId
+  draft: null,               // 当前起草决议 { id,title,clauses,effects,scope,sponsors:[iso],signatories:[iso] }
+  lastResult: null,          // 上次表决结果 { title,passed,tally,scope,changes:[{iso,name,before,after}] }
 }
 
 // 本地（仅本端）状态
@@ -58,7 +63,7 @@ export function makeSnapshot() {
       Object.entries(S.players).map(([id, p]) => [id, {
         id: p.id, name: p.name, iso: p.iso, color: p.color,
         x: p.x, y: p.y, z: p.z, ry: p.ry, anim: p.anim || 0,
-        zone: p.zone || 'hall', seat: p.seat || null,
+        zone: p.zone || 'hall', seat: p.seat || null, stats: p.stats || null,
       }])),
     seats: S.seats,
     rostrumSeatIds: S.rostrumSeatIds,
@@ -67,6 +72,10 @@ export function makeSnapshot() {
     signed: S.signed,
     floor: S.floor,
     chairman: S.chairman,
+    rollCall: S.rollCall,
+    gsl: S.gsl,
+    draft: S.draft,
+    lastResult: S.lastResult,
   }
 }
 
@@ -85,6 +94,10 @@ export function applySnapshot(snap) {
   S.signed = snap.signed || {}
   S.floor = snap.floor || null
   S.chairman = snap.chairman || null
+  S.rollCall = snap.rollCall || {}
+  S.gsl = snap.gsl || []
+  S.draft = snap.draft || null
+  S.lastResult = snap.lastResult || null
   emit('snapshot')
   emit('roster')
   emit('agenda')

@@ -206,7 +206,7 @@ function startTimers() {
         if (!p.iso) continue
         arr.push({ id, x: p.x, y: p.y, z: p.z, ry: p.ry, anim: p.anim || 0 })
       }
-      if (arr.length) A.world.send(arr)
+      if (arr.length) { A.world.send(arr); emit('world', arr) }   // 主机本地也驱动远端 avatar
     }, 1000 / WORLD_HZ)
   }
   // 客户端：上报本地位置给主机

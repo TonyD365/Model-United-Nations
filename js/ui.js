@@ -793,6 +793,24 @@ function buildHostPanel(container) {
     on('roster', refreshChair); on('chairman', refreshChair); on('snapshot', refreshChair); refreshChair()
   }
 
+  // 安全 / 反作弊（仅房主）
+  if (isHost()) {
+    panel.appendChild(el('label', 'hp-label', 'Security'))
+    const acWrap = el('label', 'hp-cb'); const acCb = el('input'); acCb.type = 'checkbox'; acCb.checked = S.antiCheat
+    acCb.onchange = () => { net.hostSetAntiCheat(acCb.checked); toast('Anti-cheat ' + (acCb.checked ? 'ON' : 'OFF')) }
+    acWrap.append(acCb, document.createTextNode(' Anti-cheat (validate movement, votes, identity, message origin)'))
+    panel.appendChild(acWrap)
+    const acInfo = el('div', 'hp-mini'); acInfo.textContent = 'No cheats blocked yet.'; panel.appendChild(acInfo)
+    const syncAc = () => { acCb.checked = S.antiCheat }
+    on('orch', syncAc); on('snapshot', syncAc)
+    let blocked = 0
+    on('cheat', e => {
+      blocked++
+      acInfo.innerHTML = `🚫 ${blocked} blocked · last: <b>${e.name || e.peerId.slice(0, 6)}</b> — ${e.reason}`
+      toast(`🚫 Anti-cheat blocked ${e.name || 'a delegate'}: ${e.reason}`)
+    })
+  }
+
   // 名册 + 发言权
   panel.appendChild(el('label', 'hp-label', 'Delegates'))
   const roster = el('div', 'hp-list'); panel.appendChild(roster)

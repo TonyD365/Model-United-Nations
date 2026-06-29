@@ -39,6 +39,7 @@ export const S = {
   presetDeadline: null,      // 选预设截止时间戳(ms)
   election: null,            // { kind, seats, candidates:[{id,label,iso}], votes:{iso:candId}, open, winners:[] }
   council: [],               // 已选出的(非常任)理事国 iso
+  antiCheat: true,           // 反作弊开关（房主控制）：校验消息来源/移动/投票/身份
 }
 
 // 本地（仅本端）状态
@@ -93,6 +94,7 @@ export function makeSnapshot() {
     presetDeadline: S.presetDeadline,
     election: S.election,
     council: S.council,
+    antiCheat: S.antiCheat,
   }
 }
 
@@ -123,6 +125,7 @@ export function applySnapshot(snap) {
   S.presetDeadline = snap.presetDeadline || null
   S.election = snap.election || null
   S.council = snap.council || []
+  S.antiCheat = snap.antiCheat !== false
   emit('snapshot')
   emit('orch'); emit('election')
   emit('roster')

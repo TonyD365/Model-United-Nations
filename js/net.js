@@ -1,6 +1,6 @@
 // Trystero 联机封装：房间、所有 action、主机权威逻辑、主机选举/离开处理
 import { joinRoom, selfId } from 'trystero'
-import { APP_ID, MAX_PLAYERS, WORLD_HZ, POS_HZ, SESSION_PRESETS, PRESET_COUNTDOWN_MS, PHASE_DURATIONS, AUTO_PHASE_MS, PERMANENT_MEMBERS, DEFAULT_STYLE } from './config.js'
+import { APP_ID, MAX_PLAYERS, WORLD_HZ, POS_HZ, SESSION_PRESETS, PRESET_COUNTDOWN_MS, PHASE_DURATIONS, AUTO_PHASE_MS, PERMANENT_MEMBERS, DEFAULT_STYLE, FLOOR_BOUNDS, RUN_SPEED } from './config.js'
 import { S, local, emit, makeSnapshot, applySnapshot, isHost } from './state.js'
 import { COUNTRY_BY_ISO, colorOf } from './countries.js'
 import { freeBooth, refreshOfficeSigns } from './office.js'
@@ -29,6 +29,74 @@ function defAction(name) {
 
 export function getRoom() { return room }
 export function selfPeerId() { return selfId }
+
+// ============ 反作弊（房主权威校验）============
+// 威胁模型：作弊者完全控制自己的浏览器，可调用任意函数、伪造任意 action 报文发给主机或其他对端。
+// 因此防御核心 = 主机对收到的请求做校验 + 客户端只信任“真主机”发来的权威广播。
+const cheatLog = {}                    // peerId -> { count, last, reasons:Set }
+const rate = {}                        // peerId|action -> { tokens, t }  令牌桶限流
+function now() { return performance.now() }
+
+function flagCheat(peerId, reason) {
+  const e = cheatLog[peerId] || (cheatLog[peerId] = { count: 0, reasons: new Set() })
+  e.count++; e.reasons.add(reason); e.last = reason
+  emit('cheat', { peerId, reason, count: e.count, name: nameOf(peerId) })
+}
+export function cheatReport() { return cheatLog }
+
+// 客户端：仅接受“真主机”发来的权威广播（防止对端伪造 phase/vote/kick/result 等）
+function fromHost(peerId) { return !S.antiCheat || local.isHost || peerId === S.hostId }
+// 包装权威广播处理器：来源非主机则丢弃并记一次作弊
+function hostOnly(fn) {
+  return (d, peerId) => {
+    if (S.antiCheat && !local.isHost && peerId !== S.hostId) { flagCheat(peerId, 'forged authoritative message'); return }
+    fn(d, peerId)
+  }
+}
+// 校验“声称的国家”确实属于发送者（防止身份伪装）
+function ownsIso(peerId, iso) { return !iso || (S.roster[iso] && S.roster[iso].peerId === peerId) }
+// 令牌桶限流：每个 (peer,action) 每秒 ratePerSec 次，最多积攒 burst 次
+function rateOk(peerId, action, ratePerSec, burst) {
+  if (!S.antiCheat) return true
+  const k = peerId + '|' + action
+  const r = rate[k] || (rate[k] = { tokens: burst, t: now() })
+  const dt = (now() - r.t) / 1000; r.t = now()
+  r.tokens = Math.min(burst, r.tokens + dt * ratePerSec)
+  if (r.tokens < 1) { return false }
+  r.tokens -= 1; return true
+}
+// 主机：校验位置上报（边界 + 速度），不合法则拒绝/夹取
+const posState = {}                    // peerId -> { t, x, z, tpT }
+function validatePos(peerId, d) {
+  if (!S.antiCheat) return d
+  // 数值合法性
+  for (const k of ['x', 'y', 'z', 'ry']) if (typeof d[k] !== 'number' || !isFinite(d[k])) { flagCheat(peerId, 'bad pos value'); return null }
+  // 边界夹取
+  const cx = Math.max(FLOOR_BOUNDS.minX, Math.min(FLOOR_BOUNDS.maxX, d.x))
+  const cz = Math.max(FLOOR_BOUNDS.minZ, Math.min(FLOOR_BOUNDS.maxZ, d.z))
+  if (cx !== d.x || cz !== d.z) flagCheat(peerId, 'out of bounds')
+  // 速度/瞬移检测：偶发大跳视为合法传送（时刻表/办公室/Visit 按钮），
+  // 但连续超速则判定为加速外挂（合法传送间隔≥1.5s，外挂每帧都超速）
+  const st = posState[peerId]; const t = now()
+  if (st) {
+    const dt = Math.max(0.001, (t - st.t) / 1000)
+    const dist = Math.hypot(cx - st.x, cz - st.z)
+    const maxStep = RUN_SPEED * 1.8 * dt + 1.0
+    if (dist > maxStep) {
+      if (t - (st.tpT || 0) > 1500) { posState[peerId] = { t, x: cx, z: cz, tpT: t }; return { x: cx, y: 0, z: cz, ry: d.ry, anim: d.anim === 1 ? 1 : 0 } }
+      flagCheat(peerId, 'speed/teleport hack'); posState[peerId] = { t, x: st.x, z: st.z, tpT: st.tpT }; return null
+    }
+  }
+  posState[peerId] = { t, x: cx, z: cz, tpT: st ? st.tpT : 0 }
+  return { x: cx, y: 0, z: cz, ry: d.ry, anim: d.anim === 1 ? 1 : 0 }
+}
+
+// 房主开关反作弊
+export function hostSetAntiCheat(on) {
+  if (!local.isHost) return
+  S.antiCheat = !!on
+  A.orch.send({ antiCheat: S.antiCheat }); emit('orch')
+}
 
 // 建房（作为主机）
 export function createRoom(roomCode, hostMode, name, onError) {
@@ -95,56 +163,62 @@ function wire() {
   })
 
   // ---- 晚加入者：应用快照 ----
-  A.snap.on((snap) => {
+  A.snap.on((snap, peerId) => {
     if (local.isHost) return
+    // 引导期接受第一份快照确立主机；此后只信任真主机，防止对端伪造快照劫持
+    if (S.antiCheat && S.hostId && peerId !== S.hostId) { flagCheat(peerId, 'forged snapshot'); return }
     applySnapshot(snap)
   })
 
   // ---- 选国家（唯一仲裁）----
   A.claimCty.on((data, peerId) => {
     if (!local.isHost) return
+    if (!rateOk(peerId, 'claim', 2, 4)) return
     hostAssignCountry(peerId, data.iso)
   })
-  A.ctySet.on((d) => { applyCountrySet(d) })
-  A.ctyRej.on((d) => { emit('countryRejected', d) })
+  A.ctySet.on(hostOnly((d) => { applyCountrySet(d) }))
+  A.ctyRej.on(hostOnly((d) => { emit('countryRejected', d) }))
 
   // ---- 位置同步 ----
   A.pos.on((d, peerId) => {
     if (!local.isHost) return
     const p = S.players[peerId]; if (!p) return
-    p.x = d.x; p.y = d.y; p.z = d.z; p.ry = d.ry; p.anim = d.anim
+    if (!rateOk(peerId, 'pos', 30, 20)) return            // 限流：防 pos 洪水
+    const v = validatePos(peerId, d); if (!v) return       // 校验：边界 + 速度
+    p.x = v.x; p.y = v.y; p.z = v.z; p.ry = v.ry; p.anim = v.anim
   })
-  A.world.on((arr) => {
+  A.world.on(hostOnly((arr) => {
     if (local.isHost) return
     emit('world', arr)
-  })
+  }))
 
   // ---- 座位 ----
   A.seatReq.on((d, peerId) => { if (local.isHost) hostSeat(peerId, d.seatId, false) })
   A.rostReq.on((d, peerId) => { if (local.isHost) emit('rostrumRequest', { peerId, seatId: d.seatId, name: nameOf(peerId) }) })
   A.seatRel.on((d, peerId) => { if (local.isHost) hostReleaseSeat(peerId) })
-  A.seatSet.on((d) => { applySeatSet(d) })
-  A.rostDec.on((d) => { applySeatSet(d); emit('rostrumDecision', d) })
-  A.chair.on((d) => { S.chairman = d.peerId; emit('chairman') })
+  A.seatSet.on(hostOnly((d) => { applySeatSet(d) }))
+  A.rostDec.on(hostOnly((d) => { applySeatSet(d); emit('rostrumDecision', d) }))
+  A.chair.on(hostOnly((d) => { S.chairman = d.peerId; emit('chairman') }))
 
   // —— 真实流程 ——
   A.roll.on((d, peerId) => {
-    if (d.rollCall) { S.rollCall = d.rollCall; emit('roll') }        // 主机→全体：全表
+    if (d.rollCall) { if (!fromHost(peerId)) return flagCheat(peerId, 'forged roll call'); S.rollCall = d.rollCall; emit('roll') }
     else if (local.isHost && d.status) hostRoll(peerId, d.status)    // 代表→主机：上报
   })
   A.gsl.on((d, peerId) => {
-    if (d.gsl) { S.gsl = d.gsl; emit('gsl') }                        // 主机→全体
+    if (d.gsl) { if (!fromHost(peerId)) return flagCheat(peerId, 'forged speakers list'); S.gsl = d.gsl; emit('gsl') }
     else if (local.isHost && d.join) hostGslAdd(peerId)              // 代表→主机：入队
   })
-  A.draft.on((d) => { S.draft = d.draft; emit('draft') })
+  A.draft.on(hostOnly((d) => { S.draft = d.draft; emit('draft') }))
   A.dSponsor.on((d, peerId) => { if (local.isHost) hostDraftJoin(peerId, 'sponsors') })
   A.dSign.on((d, peerId) => { if (local.isHost) hostDraftJoin(peerId, 'signatories') })
-  A.statsSet.on((d) => { const p = S.players[d.peerId]; if (p) p.stats = d.stats; emit('stats', d.peerId) })
-  A.result.on((d) => { S.lastResult = d; emit('result') })
+  A.statsSet.on(hostOnly((d) => { const p = S.players[d.peerId]; if (p) p.stats = d.stats; emit('stats', d.peerId) }))
+  A.result.on(hostOnly((d) => { S.lastResult = d; emit('result') }))
 
   // —— 会议编排 ——
   A.sched.on((d, peer) => {
     if (d.schedReq) { if (local.isHost && peer === S.chairman) hostSetSchedule(d.schedReq); return }
+    if (!fromHost(peer)) return flagCheat(peer, 'forged schedule')
     if (d.schedule != null) S.schedule = d.schedule
     if ('autoTeleport' in d) S.autoTeleport = d.autoTeleport
     if ('autoFlow' in d) S.autoFlow = d.autoFlow
@@ -152,58 +226,60 @@ function wire() {
   })
   A.orch.on((d, peer) => {
     if (d.presetReq) { if (local.isHost && peer === S.chairman) applyPreset(d.presetReq); return }
+    if (!fromHost(peer)) return flagCheat(peer, 'forged orchestration')
     if ('gameStage' in d) S.gameStage = d.gameStage
     if ('preset' in d) S.preset = d.preset
     if ('presetDeadline' in d) S.presetDeadline = d.presetDeadline
+    if ('antiCheat' in d) S.antiCheat = d.antiCheat
     emit('orch')
   })
   A.elect.on((d, peer) => {
-    if (d.election) { S.election = d.election; emit('election') }
+    if (d.election) { if (!fromHost(peer)) return flagCheat(peer, 'forged election'); S.election = d.election; emit('election') }
     else if (local.isHost && d.vote) hostElectionVote(peer, d.vote)
   })
   // 主席（可能非房主）驱动流程：转发给房主权威执行
   A.chairReq.on((d, peer) => {
-    if (!local.isHost || peer !== S.chairman) return
+    if (!local.isHost || peer !== S.chairman) { if (local.isHost) flagCheat(peer, 'non-chair procedure request'); return }
     const fn = CHAIR_CMDS[d.cmd]; if (fn) fn(...(d.args || []))
   })
-  // 房主踢人/封禁
-  A.kick.on((d) => { if (d.peerId === selfId) emit('ended', d.ban ? 'banned' : 'kicked') })
-  A.teleAll.on((d) => emit('teleport', d.type))
+  // 踢人/封禁：仅接受真主机发来的（否则任何对端都能踢人）
+  A.kick.on((d, peer) => { if (peer !== S.hostId) return flagCheat(peer, 'forged kick'); if (d.peerId === selfId) emit('ended', d.ban ? 'banned' : 'kicked') })
+  A.teleAll.on(hostOnly((d) => emit('teleport', d.type)))
 
-  // —— 庭审式：对话 / 弹屏 / 展示文件 ——
-  A.say.on((d) => emit('say', d))
-  A.splash.on((d) => emit('splash', d))
-  A.present.on((d) => emit('present', d))
+  // —— 庭审式：对话 / 弹屏 / 展示文件（校验身份，禁止冒用他国）——
+  A.say.on((d, peer) => { if (S.antiCheat && !ownsIso(peer, d.iso)) return flagCheat(peer, 'spoofed speaker identity'); if (!rateOk(peer, 'say', 4, 6)) return; emit('say', d) })
+  A.splash.on((d, peer) => { if (S.antiCheat && !ownsIso(peer, d.iso)) return flagCheat(peer, 'spoofed splash identity'); if (!rateOk(peer, 'splash', 3, 5)) return; emit('splash', d) })
+  A.present.on((d, peer) => { if (S.antiCheat && !ownsIso(peer, d.iso)) return flagCheat(peer, 'spoofed present identity'); emit('present', d) })
 
   // ---- 议程 / 议题 ----
-  A.phase.on((d) => { S.agenda = { phase: d.phase, topic: d.topic }; emit('agenda') })
-  A.start.on((d) => { S.started = true; S.startedAt = d.startedAt; emit('started') })
+  A.phase.on(hostOnly((d) => { S.agenda = { phase: d.phase, topic: d.topic }; emit('agenda') }))
+  A.start.on(hostOnly((d) => { S.started = true; S.startedAt = d.startedAt; emit('started') }))
 
   // ---- 投票 ----
-  A.voteOpen.on((d) => { S.vote = { ...d, open: true, casts: {}, tally: null, result: null }; emit('vote') })
+  A.voteOpen.on(hostOnly((d) => { S.vote = { ...d, open: true, casts: {}, tally: null, result: null }; emit('vote') }))
   A.voteCast.on((d, peerId) => { if (local.isHost) hostRecordVote(peerId, d) })
-  A.voteClose.on((d) => { if (S.vote) { S.vote.open = false; S.vote.tally = d.tally; S.vote.result = d.result }; emit('vote') })
+  A.voteClose.on(hostOnly((d) => { if (S.vote) { S.vote.open = false; S.vote.tally = d.tally; S.vote.result = d.result }; emit('vote') }))
 
   // ---- 签字 ----
   A.signDoc.on((d, peerId) => { if (local.isHost) hostSign(peerId, d.docId, d.approve, d.name) })
-  A.signSet.on((d) => { S.signed[d.docId] = d.entries; emit('signed', d.docId) })
+  A.signSet.on(hostOnly((d) => { S.signed[d.docId] = d.entries; emit('signed', d.docId) }))
 
   // ---- 语音区 / 发言权 / 麦克风 ----
   A.zone.on((d, peerId) => { const p = S.players[peerId]; if (p) p.zone = d.zone; emit('zone', peerId) })
-  A.floor.on((d) => { S.floor = d.peerId; emit('floor') })
+  A.floor.on(hostOnly((d) => { S.floor = d.peerId; emit('floor') }))
   A.mic.on((d, peerId) => emit('mic', peerId, d.on))
 
-  // ---- 聊天 ----
-  A.chat.on((d, peerId) => emit('chat', d))
+  // ---- 聊天（校验身份）----
+  A.chat.on((d, peerId) => { if (S.antiCheat && !ownsIso(peerId, d.iso)) return flagCheat(peerId, 'spoofed chat identity'); if (!rateOk(peerId, 'chat', 3, 5)) return; emit('chat', d) })
 
   // ---- 主机移除玩家广播 ----
-  A.pLeft.on((d) => {
+  A.pLeft.on(hostOnly((d) => {
     if (d.iso && S.roster[d.iso]) delete S.roster[d.iso]
     delete S.players[d.peerId]
     refreshOfficeSigns(S.roster)
     emit('playerRemoved', d.peerId)
     emit('roster')
-  })
+  }))
 }
 
 function startTimers() {
@@ -604,6 +680,10 @@ export function hostCloseElection() {
 function hostAssignCountry(peerId, iso) {
   if (!COUNTRY_BY_ISO[iso]) return
   if (banned.has(peerId)) { A.kick.send({ peerId, ban: true }, peerId); return }
+  // 反作弊：一个对端只能占一个国家（防止抢多国）
+  if (S.antiCheat && peerId !== selfId && S.players[peerId] && S.players[peerId].iso && S.players[peerId].iso !== iso) {
+    flagCheat(peerId, 'multiple country claim'); A.ctyRej.send({ iso, reason: 'one-country' }, peerId); return
+  }
   if (S.roster[iso]) { A.ctyRej.send({ iso, reason: 'taken' }, peerId); return }
   if (Object.keys(S.players).length >= MAX_PLAYERS) { A.ctyRej.send({ iso, reason: 'full' }, peerId); return }
   const base = peerId === selfId ? local.name : (pending[peerId] || nameOf(peerId) || '???')

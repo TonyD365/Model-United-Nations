@@ -67,6 +67,35 @@ peer IDs: create a room in one, join with the code in the other.
 - `js/net.js` & `js/state.js` hold all networking and authoritative state.
 - `js/hall.js`, `js/office.js` build the world; `js/player.js`, `js/avatars.js` handle movement; `js/voice.js` does spatial audio; `js/ui.js` the interface.
 
+## Security model (anti-cheat)
+
+The game is **P2P with one authoritative host**. A cheater fully controls their own
+browser — they can call any function and craft any message — so every defense lives
+on the **receiving** side: the host validates client *requests*, and every node
+rejects authoritative *broadcasts* that aren't from the real host. The host can
+toggle anti-cheat on/off and repeat offenders are **auto-banned** (6 host-detected
+offenses). What it stops, and how:
+
+| Attack (a malicious client tries to…) | Defense |
+| --- | --- |
+| Forge a phase change / vote result / kick / chair status (broadcast as if from the host) | **Origin auth**: `peerId` is set by the WebRTC transport, not the payload, so forged broadcasts arrive under the cheater's own id and are dropped. **Plus ECDSA signatures**: the host signs every authoritative message; a member has the room code but not the host's private key, so the signature won't verify (binds action+payload, so cross-action replay also fails). |
+| Spoof their `peerId` at the library level to *look* like the host | Caught by the **signature** layer — still can't produce the host's signature. |
+| Inject a fake snapshot to hijack a new joiner | Only the **first** snapshot is trusted (TOFU); later snapshots must come from the established host id. The host's public key rides in that first snapshot. |
+| Speed-hack / teleport across the map | Host checks per-tick distance vs. run speed; sustained over-speed is rejected (occasional big jumps are allowed as legit teleports). |
+| **Fly** | Host detects *sustained* airtime and clamps to the ground — real **jumps** (transient) still pass. |
+| **Noclip** through walls | Host rejects any position **inside a solid collider**. |
+| Grab multiple countries | One country per peer; extra claims rejected. |
+| Vote when not on the Security Council (SC vote) | Host enforces Council eligibility. |
+| Impersonate another country in speech/chat | Host verifies the claimed ISO belongs to the sender. |
+| Flood messages | Per-peer, per-action rate limiting. |
+
+**What it does *not* solve:** voice eavesdropping. In a pure WebRTC mesh, anyone who
+receives an audio stream can listen regardless of proximity/zone gating — fixing that
+needs a server (SFU), which is out of scope for a zero-cost build.
+
+A Tampermonkey **test cheat** (fly/noclip/forge/flood) is available on request to
+exercise each of these defenses with anti-cheat on vs. off.
+
 ## Known limits
 
 - Trystero is a full WebRTC **mesh**; 50 players is the stretch ceiling. Position

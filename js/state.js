@@ -40,6 +40,7 @@ export const S = {
   election: null,            // { kind, seats, candidates:[{id,label,iso}], votes:{iso:candId}, open, winners:[] }
   council: [],               // 已选出的(非常任)理事国 iso
   antiCheat: true,           // 反作弊开关（房主控制）：校验消息来源/移动/投票/身份
+  hostPubKey: null,          // 主机签名公钥(JWK)，随快照下发，用于权威消息密码学验签
 }
 
 // 本地（仅本端）状态
@@ -95,6 +96,7 @@ export function makeSnapshot() {
     election: S.election,
     council: S.council,
     antiCheat: S.antiCheat,
+    hostPubKey: S.hostPubKey,
   }
 }
 
@@ -126,6 +128,7 @@ export function applySnapshot(snap) {
   S.election = snap.election || null
   S.council = snap.council || []
   S.antiCheat = snap.antiCheat !== false
+  S.hostPubKey = snap.hostPubKey || null
   emit('snapshot')
   emit('orch'); emit('election')
   emit('roster')

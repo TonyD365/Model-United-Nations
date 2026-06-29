@@ -5,11 +5,21 @@ import { S, local, emit, makeSnapshot, applySnapshot, isHost } from './state.js'
 import { COUNTRY_BY_ISO, colorOf } from './countries.js'
 import { freeBooth, refreshOfficeSigns } from './office.js'
 import { COLLIDERS } from './hall.js'
+import { cryptoAvailable, genKeys, exportPub, importPub, sign as signMsg, verify as verifyMsg } from './crypto.js'
 import { initStats, applyEffects } from './stats.js'
 import { nextPhase } from './agenda.js'
 
 let room = null
 const A = {}                 // action 名 -> { send, on }
+// 需要主机签名的"权威广播"动作（单向 host→全体/定向）。snap 不在内：它是引导信任的载体(携带公钥)。
+const SIGNED = new Set(['ctySet', 'ctyRej', 'world', 'seatSet', 'rostDec', 'chair', 'draft',
+  'statsSet', 'result', 'phase', 'start', 'voteOpen', 'voteClose', 'signSet', 'floor', 'teleAll', 'kick', 'pLeft'])
+let signKey = null           // 主机私钥
+let hostVerifyKey = null     // 客户端导入的主机公钥
+let cryptoReady = Promise.resolve()  // 主机密钥生成完成的 promise
+let signQueue = Promise.resolve()    // 串行签名，保证发送顺序
+let verifyQueue = Promise.resolve()  // 串行验签，保证应用顺序
+const REJECT = Symbol('reject')
 const pending = {}           // peerId -> name（已连接但未选国）
 const pendingStyle = {}      // peerId -> 外观 id（握手时上报）
 let lastLocal = null
@@ -22,10 +32,55 @@ function defAction(name) {
   // send(data, {target}) 用选项对象指定目标；onMessage 是可赋值属性，回调签名 (data, {peerId})。
   const a = room.makeAction(name)
   A[name] = {
-    send: (data, target) => a.send(data, target ? { target } : undefined).catch(() => {}),
-    on: (fn) => { a.onMessage = (data, ctx) => fn(data, ctx.peerId) },
+    send: (data, target) => {
+      const opt = target ? { target } : undefined
+      // 权威动作 + 反作弊开启 + 主机有私钥 → 串行签名后发送 { __d, __s }
+      if (local.isHost && S.antiCheat && signKey && SIGNED.has(name)) {
+        signQueue = signQueue.then(async () => {
+          try { const s = await signMsg(signKey, name, data); a.send({ __d: data, __s: s }, opt).catch(() => {}) }
+          catch { a.send(data, opt).catch(() => {}) }
+        }).catch(() => {})
+      } else a.send(data, opt).catch(() => {})
+    },
+    on: (fn) => {
+      a.onMessage = (raw, ctx) => {
+        const peerId = ctx.peerId
+        if (S.antiCheat && SIGNED.has(name)) {
+          verifyQueue = verifyQueue.then(async () => {
+            const inner = await verifyInbound(name, raw, peerId)
+            if (inner !== REJECT) fn(inner, peerId)
+          }).catch(() => {})
+        } else fn(raw, peerId)
+      }
+    },
   }
   return A[name]
+}
+
+// 客户端：校验一条权威消息的来源(peerId===主机) + 签名；通过则返回内层数据
+async function verifyInbound(name, raw, peerId) {
+  if (peerId !== S.hostId) { flagCheat(peerId, 'forged authoritative (origin)'); return REJECT }
+  const signed = raw && typeof raw === 'object' && raw.__s !== undefined
+  if (!signed) {
+    // 主机已启用签名(我们已拿到公钥)却收到未签名消息 → 伪造；否则(主机未启用)退回仅来源校验
+    if (hostVerifyKey) { flagCheat(peerId, 'unsigned authoritative message'); return REJECT }
+    return raw
+  }
+  if (hostVerifyKey) {
+    const ok = await verifyMsg(hostVerifyKey, name, raw.__d, raw.__s)
+    if (!ok) { flagCheat(peerId, 'bad signature (forged authoritative)'); return REJECT }
+  }
+  return raw.__d
+}
+
+// 主机：开房时生成签名密钥对，公钥写入快照下发
+async function initHostCrypto() {
+  if (!cryptoAvailable()) return
+  try {
+    const kp = await genKeys()
+    signKey = kp.privateKey
+    S.hostPubKey = await exportPub(kp.publicKey)
+  } catch { signKey = null }
 }
 
 export function getRoom() { return room }
@@ -137,6 +192,7 @@ export function createRoom(roomCode, hostMode, name, onError) {
   if (hostMode === 'player') {
     // 主机也作为玩家，进场后再补 iso/位置
   }
+  cryptoReady = initHostCrypto()   // 生成签名密钥对（异步，公钥写入 S.hostPubKey 随快照下发）
   open(roomCode, onError)
   emit('connected', { isHost: true })
 }
@@ -183,11 +239,12 @@ function wire() {
   }
 
   // ---- 主机：响应握手，下发快照 ----
-  A.hello.on((data, peerId) => {
+  A.hello.on(async (data, peerId) => {
     if (!local.isHost) return
     if (banned.has(peerId)) { A.kick.send({ peerId, ban: true }, peerId); return }   // 封禁者拒绝入场
     pending[peerId] = data.name || '???'
     pendingStyle[peerId] = data.style || DEFAULT_STYLE
+    await cryptoReady                  // 确保公钥已就绪再下发快照（携带公钥）
     A.snap.send(makeSnapshot(), peerId)
   })
 
@@ -197,6 +254,8 @@ function wire() {
     // 引导期接受第一份快照确立主机；此后只信任真主机，防止对端伪造快照劫持
     if (S.antiCheat && S.hostId && peerId !== S.hostId) { flagCheat(peerId, 'forged snapshot'); return }
     applySnapshot(snap)
+    // 导入主机签名公钥（首见即信）；之后所有权威消息都要用它验签
+    if (snap.hostPubKey) importPub(snap.hostPubKey).then(k => { hostVerifyKey = k }).catch(() => {})
   })
 
   // ---- 选国家（唯一仲裁）----

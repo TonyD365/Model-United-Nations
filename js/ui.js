@@ -800,6 +800,9 @@ function buildHostPanel(container) {
     acCb.onchange = () => { net.hostSetAntiCheat(acCb.checked); toast('Anti-cheat ' + (acCb.checked ? 'ON' : 'OFF')) }
     acWrap.append(acCb, document.createTextNode(' Anti-cheat (validate movement, votes, identity, message origin)'))
     panel.appendChild(acWrap)
+    const cryptoInfo = el('div', 'hp-mini')
+    const syncCrypto = () => { cryptoInfo.innerHTML = S.hostPubKey ? '🔐 Authoritative messages are <b>ECDSA-signed</b> (origin is cryptographically verified)' : '⚠ Message signing unavailable (needs HTTPS) — origin check only' }
+    on('snapshot', syncCrypto); syncCrypto(); panel.appendChild(cryptoInfo)
     const acInfo = el('div', 'hp-mini'); acInfo.textContent = 'No cheats blocked yet.'; panel.appendChild(acInfo)
     const syncAc = () => { acCb.checked = S.antiCheat }
     on('orch', syncAc); on('snapshot', syncAc)

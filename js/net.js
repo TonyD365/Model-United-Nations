@@ -243,7 +243,7 @@ function wire() {
     const fn = CHAIR_CMDS[d.cmd]; if (fn) fn(...(d.args || []))
   })
   // 踢人/封禁：仅接受真主机发来的（否则任何对端都能踢人）
-  A.kick.on((d, peer) => { if (peer !== S.hostId) return flagCheat(peer, 'forged kick'); if (d.peerId === selfId) emit('ended', d.ban ? 'banned' : 'kicked') })
+  A.kick.on((d, peer) => { if (S.antiCheat && peer !== S.hostId) return flagCheat(peer, 'forged kick'); if (d.peerId === selfId) emit('ended', d.ban ? 'banned' : 'kicked') })
   A.teleAll.on(hostOnly((d) => emit('teleport', d.type)))
 
   // —— 庭审式：对话 / 弹屏 / 展示文件（校验身份，禁止冒用他国）——

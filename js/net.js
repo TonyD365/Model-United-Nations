@@ -4,6 +4,7 @@ import { APP_ID, MAX_PLAYERS, WORLD_HZ, POS_HZ, SESSION_PRESETS, PRESET_COUNTDOW
 import { S, local, emit, makeSnapshot, applySnapshot, isHost } from './state.js'
 import { COUNTRY_BY_ISO, colorOf } from './countries.js'
 import { freeBooth, refreshOfficeSigns } from './office.js'
+import { COLLIDERS } from './hall.js'
 import { initStats, applyEffects } from './stats.js'
 import { nextPhase } from './agenda.js'
 
@@ -37,12 +38,31 @@ const cheatLog = {}                    // peerId -> { count, last, reasons:Set }
 const rate = {}                        // peerId|action -> { tokens, t }  令牌桶限流
 function now() { return performance.now() }
 
+const AUTOBAN_AT = 6                    // 累计到此次数自动封禁（仅主机侧检测计数）
 function flagCheat(peerId, reason) {
   const e = cheatLog[peerId] || (cheatLog[peerId] = { count: 0, reasons: new Set() })
   e.count++; e.reasons.add(reason); e.last = reason
   emit('cheat', { peerId, reason, count: e.count, name: nameOf(peerId) })
+  // 反作弊自动封禁：主机侧检测到的累犯，达到阈值直接踢+封
+  if (local.isHost && S.antiCheat && peerId !== selfId && !banned.has(peerId) && e.count >= AUTOBAN_AT) {
+    emit('cheat', { peerId, reason: 'AUTO-BANNED (repeat offenses)', count: e.count, name: nameOf(peerId) })
+    hostKick(peerId, true)
+  }
 }
 export function cheatReport() { return cheatLog }
+// 玩家是否被反作弊判定（噪声半径内）落在实心碰撞体里 = 穿墙
+const PLAYER_R = 0.42
+function insideSolid(x, z) {
+  for (const c of COLLIDERS) {
+    if (c.r != null) {
+      const dx = x - c.x, dz = z - c.z
+      if (dx * dx + dz * dz < (c.r - 0.1) * (c.r - 0.1)) return true       // 圆形：明显在内部
+    } else if (x > c.minX + 0.1 && x < c.maxX - 0.1 && z > c.minZ + 0.1 && z < c.maxZ - 0.1) {
+      return true                                                          // AABB：穿透进实心
+    }
+  }
+  return false
+}
 
 // 仅接受“真主机”发来的权威广播（主机本身也不接受来自客户端的权威广播——主机只会直接改自己的 S）
 function fromHost(peerId) { return !S.antiCheat || peerId === S.hostId }
@@ -66,29 +86,38 @@ function rateOk(peerId, action, ratePerSec, burst) {
   r.tokens -= 1; return true
 }
 // 主机：校验位置上报（边界 + 速度），不合法则拒绝/夹取
-const posState = {}                    // peerId -> { t, x, z, tpT }
+const posState = {}                    // peerId -> { t, x, z, tpT, air }
+const MAX_AIR = 1.6                     // 允许的最大离地高度（跳跃峰值约 1.0m）
 function validatePos(peerId, d) {
   if (!S.antiCheat) return d
   // 数值合法性
   for (const k of ['x', 'y', 'z', 'ry']) if (typeof d[k] !== 'number' || !isFinite(d[k])) { flagCheat(peerId, 'bad pos value'); return null }
+  const st = posState[peerId]; const t = now()
+  const seated = !!(S.players[peerId] && S.players[peerId].seat)
   // 边界夹取
   const cx = Math.max(FLOOR_BOUNDS.minX, Math.min(FLOOR_BOUNDS.maxX, d.x))
   const cz = Math.max(FLOOR_BOUNDS.minZ, Math.min(FLOOR_BOUNDS.maxZ, d.z))
   if (cx !== d.x || cz !== d.z) flagCheat(peerId, 'out of bounds')
-  // 速度/瞬移检测：偶发大跳视为合法传送（时刻表/办公室/Visit 按钮），
-  // 但连续超速则判定为加速外挂（合法传送间隔≥1.5s，外挂每帧都超速）
-  const st = posState[peerId]; const t = now()
-  if (st) {
+  // y：允许跳跃(短暂离地)，但“持续滞空”=飞行外挂。高度超上限直接判定。
+  let cy = Math.max(0, Math.min(MAX_AIR, d.y))
+  if (d.y > MAX_AIR + 0.05) flagCheat(peerId, 'fly hack (altitude)')
+  let air = st ? (st.air || 0) : 0
+  if (cy > 0.25) { if (!air) air = t; else if (t - air > 1300) { flagCheat(peerId, 'fly hack'); cy = 0 } }
+  else air = 0
+  // 穿墙检测：未落座时不得进入实心碰撞体内部
+  if (!seated && insideSolid(cx, cz)) { flagCheat(peerId, 'noclip / wall hack'); posState[peerId] = { t, x: st ? st.x : cx, z: st ? st.z : cz, tpT: st ? st.tpT : 0, air }; return null }
+  // 速度/瞬移检测：偶发大跳视为合法传送（时刻表/办公室/Visit 按钮），连续超速=加速外挂
+  if (!seated && st) {
     const dt = Math.max(0.001, (t - st.t) / 1000)
     const dist = Math.hypot(cx - st.x, cz - st.z)
     const maxStep = RUN_SPEED * 1.8 * dt + 1.0
     if (dist > maxStep) {
-      if (t - (st.tpT || 0) > 1500) { posState[peerId] = { t, x: cx, z: cz, tpT: t }; return { x: cx, y: 0, z: cz, ry: d.ry, anim: d.anim === 1 ? 1 : 0 } }
-      flagCheat(peerId, 'speed/teleport hack'); posState[peerId] = { t, x: st.x, z: st.z, tpT: st.tpT }; return null
+      if (t - (st.tpT || 0) > 1500) { posState[peerId] = { t, x: cx, z: cz, tpT: t, air }; return { x: cx, y: cy, z: cz, ry: d.ry, anim: d.anim === 1 ? 1 : 0 } }
+      flagCheat(peerId, 'speed/teleport hack'); posState[peerId] = { t, x: st.x, z: st.z, tpT: st.tpT, air }; return null
     }
   }
-  posState[peerId] = { t, x: cx, z: cz, tpT: st ? st.tpT : 0 }
-  return { x: cx, y: 0, z: cz, ry: d.ry, anim: d.anim === 1 ? 1 : 0 }
+  posState[peerId] = { t, x: cx, z: cz, tpT: st ? st.tpT : 0, air }
+  return { x: cx, y: cy, z: cz, ry: d.ry, anim: d.anim === 1 ? 1 : 0 }
 }
 
 // 房主开关反作弊

@@ -4,7 +4,7 @@ import { PHASES, TOPICS, VOTE_OPTIONS, MAX_PLAYERS, SEATED_PHASES, SESSION_PRESE
 import { COUNTRIES, COUNTRY_BY_ISO } from './countries.js'
 import * as net from './net.js'
 import { setMicEnabled, hasVoice, micEnabled } from './voice.js'
-import { toggleView, isMobile, setJoystick, addLook, teleport } from './player.js'
+import { toggleView, isMobile, setJoystick, addLook, teleport, jump } from './player.js'
 import { boothCenter } from './office.js'
 import { phaseLabel, phaseMeta, nextPhase, prevPhase } from './agenda.js'
 import { FIELDS, fmt, devIndex, fullProfile } from './stats.js'
@@ -878,6 +878,10 @@ function buildMobileControls() {
   look.addEventListener('touchstart', e => { const t = e.changedTouches[0]; lid = t.identifier; lx = t.clientX; ly = t.clientY; e.preventDefault() }, { passive: false })
   look.addEventListener('touchmove', e => { for (const t of e.changedTouches) if (t.identifier === lid) { addLook((t.clientX - lx) * 1.2, (t.clientY - ly) * 1.2); lx = t.clientX; ly = t.clientY } e.preventDefault() }, { passive: false })
   look.addEventListener('touchend', e => { for (const t of e.changedTouches) if (t.identifier === lid) lid = null })
+
+  // Roblox 式跳跃按钮（仅移动端，右下角）
+  const jumpBtn = el('div', 'jump-btn', '⤒'); jumpBtn.style.pointerEvents = 'auto'; overlay.appendChild(jumpBtn)
+  jumpBtn.addEventListener('touchstart', e => { jump(); e.preventDefault() }, { passive: false })
 }
 
 // ---------------- 全局 ----------------

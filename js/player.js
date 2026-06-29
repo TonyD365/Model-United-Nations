@@ -8,6 +8,9 @@ import { spawnAvatar } from './avatars.js'
 export const isMobile = ('ontouchstart' in window) || navigator.maxTouchPoints > 0
 const SENS = 0.0026
 const PLAYER_R = 0.42
+const JUMP_V = 5.2      // 起跳初速度（最高约 1.0m，滞空约 0.8s）
+const GRAVITY = 13
+let vy = 0              // 垂直速度
 
 const keys = {}
 const input = { move: new THREE.Vector2(), lookDX: 0, lookDY: 0, run: false }
@@ -57,15 +60,17 @@ export function standUp() {
 }
 export function isSeated() { return !!seated }
 
-export function teleport(x, z) { pos.set(x, 0, z); seated = null; if (self) self.seated = false }
+export function teleport(x, z) { pos.set(x, 0, z); vy = 0; seated = null; if (self) self.seated = false }
 export function position() { return pos }
+// 跳跃：仅在落地且未落座时起跳
+export function jump() { if (!seated && pos.y <= 0.001) vy = JUMP_V }
 
 export function setJoystick(x, y) { input.move.set(x, y) }
 export function addLook(dx, dy) { input.lookDX += dx; input.lookDY += dy }
 
 const typing = e => { const t = e.target; return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable) }
 function setupDesktop() {
-  addEventListener('keydown', e => { if (typing(e)) return; keys[e.code] = true; if (e.code === 'KeyV') toggleView() })
+  addEventListener('keydown', e => { if (typing(e)) return; keys[e.code] = true; if (e.code === 'KeyV') toggleView(); if (e.code === 'Space') { e.preventDefault(); jump() } })
   addEventListener('keyup', e => { if (typing(e)) { keys[e.code] = false; return } keys[e.code] = false })
   const canvas = document.getElementById('app')
   canvas.addEventListener('contextmenu', e => e.preventDefault())
@@ -148,6 +153,15 @@ export function updatePlayer(dt) {
       moving = true
     }
   }
+
+  // 跳跃 / 重力（落座时不受重力）
+  if (!seated) {
+    if (pos.y > 0 || vy !== 0) {
+      vy -= GRAVITY * dt
+      pos.y += vy * dt
+      if (pos.y <= 0) { pos.y = 0; vy = 0 }
+    }
+  } else { pos.y = seated.position.y || 0; vy = 0 }
 
   // 第一人称隐藏自身模型（避免相机穿进头部）
   if (self) {

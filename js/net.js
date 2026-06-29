@@ -44,12 +44,12 @@ function flagCheat(peerId, reason) {
 }
 export function cheatReport() { return cheatLog }
 
-// 客户端：仅接受“真主机”发来的权威广播（防止对端伪造 phase/vote/kick/result 等）
-function fromHost(peerId) { return !S.antiCheat || local.isHost || peerId === S.hostId }
+// 仅接受“真主机”发来的权威广播（主机本身也不接受来自客户端的权威广播——主机只会直接改自己的 S）
+function fromHost(peerId) { return !S.antiCheat || peerId === S.hostId }
 // 包装权威广播处理器：来源非主机则丢弃并记一次作弊
 function hostOnly(fn) {
   return (d, peerId) => {
-    if (S.antiCheat && !local.isHost && peerId !== S.hostId) { flagCheat(peerId, 'forged authoritative message'); return }
+    if (S.antiCheat && peerId !== S.hostId) { flagCheat(peerId, 'forged authoritative message'); return }
     fn(d, peerId)
   }
 }
